@@ -100,12 +100,14 @@ Pi Script v0.1 is under active development. This is a research and build project
 |-----------|--------|
 | M1 — Grammar specification | ✅ Complete |
 | M2 — Semantic validator | ✅ Complete — 12/12 tests passing |
-| M3 — Parser formal sign-off | ⬜ In progress |
-| M4 — Resolver core (constraint evaluation + RESOLUTION TRACEs) | ⬜ Next |
-| M5 — Dogfood (30 days, real violations) | ⬜ Pending |
+| M3 — Parser formal sign-off | ✅ Complete — 9/9 tests passing |
+| M4 — Resolver core (constraint evaluation + RESOLUTION TRACEs) | ✅ Complete — 37/37 tests passing |
+| M5 — Dogfood (30 days, real violations) | ⬜ Next |
 | M6 — Publish (paper + public playground) | ⬜ Pending |
 
-The grammar is spec-compliant as of Draft 3. The validator produces a fully correct IR. The resolver architecture is designed and ready to build.
+89 tests across all four milestones. 0 failures.
+
+The grammar is spec-compliant as of Draft 3. The validator produces a fully correct IR. The resolver evaluates all five rule kinds against live entity state and emits auditable RESOLUTION TRACEs. The trace layer's gate condition — a non-expert must be able to read a trace and understand why the system acted — is verified by test.
 
 ---
 
