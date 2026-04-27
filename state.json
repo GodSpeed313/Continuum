@@ -1,0 +1,18 @@
+{
+  "trigger_type": "event",
+  "entity": "TaskAgent",
+  "entity_state": {
+    "response_count":   42,
+    "confidence_score": 0.72,
+    "current_mode":     "normal_mode",
+    "is_active":        true,
+    "session_id":       "smoke-001"
+  },
+  "response_history": [
+    {
+      "text":      "Refunds are processed within 5 business days.",
+      "state_ref": "TaskAgent.response_history",
+      "timestamp": "2026-04-27T10:00:00.000Z"
+    }
+  ]
+}

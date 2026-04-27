@@ -448,5 +448,5 @@ if __name__ == "__main__":
             print(f"ERROR  {e}", file=sys.stderr)
     if ok:
         print(json.dumps(ir, indent=2))
-        print(f"\nOK  {sys.argv[1]}")
+        print(f"OK  {sys.argv[1]}", file=sys.stderr)
     sys.exit(0 if ok else 1)

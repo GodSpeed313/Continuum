@@ -32,3 +32,4 @@ Thumbs.db
 # Pi Script runtime artifacts
 *.pi.trace
 *.pi.ir
+ir.json
