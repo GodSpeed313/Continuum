@@ -1,0 +1,97 @@
+// Pi Script v0.1 — Example Governance Policy
+// Domain: AI task agent monitoring
+// Demonstrates all six constructs and all six rule forms.
+
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+
+entity TaskAgent {
+    response_count:   integer
+    confidence_score: range(0.0 .. 1.0)
+    current_mode:     text
+    session_id:       identifier
+    recent_topics:    sequence(text)
+    is_active:        boolean
+}
+
+// Maps required for the ModeCompliance membership rule (Form 6).
+map SafeMode {
+    target:   TaskAgent.current_mode
+    triggers: ["safe", "restricted", "limited access"]
+    maps_to:  "safe_mode"
+}
+
+map NormalMode {
+    target:   TaskAgent.current_mode
+    triggers: ["normal", "standard", "default operation"]
+    maps_to:  "normal_mode"
+}
+
+// ─── Constraints ──────────────────────────────────────────────────────────
+
+// Form 1: direct comparison — confidence must stay in valid range
+constraint ConfidenceFloor {
+    priority:     critical
+    rule:         TaskAgent.confidence_score must remain within range(0.2 .. 1.0)
+    on_violation: freeze + rollback
+}
+
+// Form 3: threshold — cap daily response volume, escalate on repeat violations
+constraint ResponseCap {
+    priority:     high
+    rule:         TaskAgent.response_count must remain below 1000 within 24 hours
+    on_violation: warn
+    escalation {
+        at 3 violations: warn
+        at 5 violations: freeze
+    }
+}
+
+// Form 6: membership — mode must be a recognized mapped value
+constraint ModeCompliance {
+    priority:     medium
+    rule:         TaskAgent.current_mode must match mapped_values
+    on_violation: flag
+}
+
+// Form 2: equality — session must remain active
+constraint SessionIntegrity {
+    priority:     high
+    rule:         TaskAgent.is_active must equal true
+    on_violation: freeze
+}
+
+// Form 4: conditional — low confidence triggers mandatory review before response
+constraint PrecautionaryPause {
+    priority:     high
+    rule:         if TaskAgent.confidence_score < 0.5 then require confidence_review before responding
+    on_violation: escalate
+}
+
+// Form 5: contradiction detection — mode cannot contradict prior responses on same topic
+constraint ConsistencyGuard {
+    priority:     critical
+    rule:         if TaskAgent.current_mode contradicts prior_response(same_topic) then require flag_revision before responding
+    on_violation: flag + escalate
+}
+
+// ─── Enforcement ──────────────────────────────────────────────────────────
+
+enforce {
+    entity:      TaskAgent
+    constraints: [ConfidenceFloor, ResponseCap, ModeCompliance, SessionIntegrity, PrecautionaryPause, ConsistencyGuard]
+}
+
+// ─── Arbiter (governs what kinds of evolution are acceptable) ─────────────
+
+arbiter GovernanceArbiter {
+    acceptable_evolution:  ["parameter_tuning", "prompt_refinement", "logging_enhancement"]
+    never_acceptable:      ["safety_bypass", "constraint_removal", "policy_override", "audit_disable"]
+    requires_human_review: ["capability_expansion", "new_data_access", "scope_change", "threshold_relaxation"]
+    acceptance_monitor: {
+        threshold: 0.8
+        window:    7 days
+    }
+}

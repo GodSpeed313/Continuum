@@ -1,0 +1,152 @@
+// Pi Script v0.1 — Governance Language for the Continuum Stack
+// Milestone 1: Grammar + Parser
+// Layer 2 of Continuum: defines what must remain true while systems change.
+
+start: domain_decl top_level_stmt*
+
+// ═══ Domain (required first, exactly one per file) ════════════════════════
+domain_decl: "domain" SNAKE_ID "{" domain_item+ "}"
+
+domain_item: "audit_interval" ":" duration
+           | "tiebreaker"     ":" tiebreaker_mode
+
+tiebreaker_mode: TIEBREAKER_KW
+TIEBREAKER_KW: "timestamp_asc" | "timestamp_desc" | "lexical_asc" | "explicit_rank"
+
+// ═══ Top-level statements ═════════════════════════════════════════════════
+top_level_stmt: entity_decl
+              | constraint_decl
+              | map_decl
+              | enforce_decl
+              | arbiter_decl
+
+// ═══ Entity (subject of governance; holds named typed states) ══════════════
+entity_decl: "entity" PASCAL_ID "{" state_field+ "}"
+
+state_field: SNAKE_ID ":" state_type
+
+state_type: STATE_TYPE_KW
+          | "range"    "(" PI_NUMBER ".." PI_NUMBER ")"
+          | "sequence" "(" state_type ")"
+STATE_TYPE_KW: "integer" | "boolean" | "text" | "identifier"
+
+// ═══ Constraint (rule that must remain true) ══════════════════════════════
+constraint_decl: "constraint" PASCAL_ID "{" constraint_item+ "}"
+
+constraint_item: "priority"     ":" priority_level   -> c_priority
+               | "rule"         ":" rule_expr        -> c_rule
+               | "on_violation" ":" violation_action -> c_on_violation
+               | "decay_check"  ":" duration         -> c_decay_check
+               | escalation_block                    -> c_escalation
+
+priority_level: PRIORITY_KW
+PRIORITY_KW: "critical" | "high" | "medium" | "low"
+
+// ─── Six valid rule forms ────────────────────────────────────────────────
+rule_expr: range_rule
+         | threshold_rule
+         | equality_rule
+         | membership_rule
+         | if_rule
+
+// Form 1: Entity.state must remain within range(min..max)
+range_rule: state_ref "must" "remain" "within" "range" "(" PI_NUMBER ".." PI_NUMBER ")"
+
+// Form 3: Entity.state must remain below N within <duration>
+threshold_rule: state_ref "must" "remain" "below" PI_NUMBER "within" duration
+
+// Form 2: Entity.state must equal <value>
+equality_rule: state_ref "must" "equal" pi_value
+
+// Form 6: Entity.state must match mapped_values  (validator checks map exists)
+membership_rule: state_ref "must" "match" "mapped_values"
+
+// Forms 4 & 5: if-then rules (conditional + contradiction detection unified)
+// Validator distinguishes the three if_condition variants for semantic checks.
+if_rule: "if" state_ref if_condition "then" "require" SNAKE_ID "before" SNAKE_ID
+
+if_condition: COMP_OP pi_value                                       -> cond_compare
+            | "is" "true"                                            -> cond_bool_true
+            | "is" "false"                                           -> cond_bool_false
+            | "contradicts" "prior_response" "(" "same_topic" ")"   -> cond_contradiction
+
+COMP_OP: ">=" | "<=" | "==" | "!=" | ">" | "<"
+
+// ═══ State reference — flat: Entity.state (no nesting) ════════════════════
+state_ref: PASCAL_ID "." SNAKE_ID
+
+// ═══ Violation actions ════════════════════════════════════════════════════
+violation_action: simple_action ("+" simple_action)?
+
+simple_action: ACTION_KW
+ACTION_KW: "flag" | "warn" | "escalate" | "freeze" | "rollback"
+
+// ═══ Escalation block ═════════════════════════════════════════════════════
+escalation_block: "escalation" "{" escalation_step+ "}"
+
+escalation_step: "at" PI_NUMBER "violations" ":" escalation_action
+
+escalation_action: ACTION_KW
+
+// ═══ Map (human language → machine state; first-class construct) ══════════
+map_decl: "map" PASCAL_ID "{" map_item+ "}"
+
+map_item: "target"     ":" state_ref    -> mi_target
+        | "triggers"   ":" trigger_list -> mi_triggers
+        | "maps_to"    ":" pi_value     -> mi_maps_to
+        | "match_mode" ":" match_mode   -> mi_match_mode
+
+trigger_list: "[" trigger_entry ("," trigger_entry)* "]"
+
+trigger_entry: ESCAPED_STRING
+             | "regex" ":" ESCAPED_STRING -> regex_trigger
+
+match_mode: MATCH_MODE_KW
+MATCH_MODE_KW: "substring" | "exact"
+
+// ═══ Enforce (activates constraints against named entities) ════════════════
+enforce_decl: "enforce" "{" enforce_item+ "}"
+
+enforce_item: "entity"      ":" PASCAL_ID        -> ei_entity
+            | "constraints" ":" enforce_ref_list -> ei_constraints
+
+enforce_ref_list: "[" PASCAL_ID ("," PASCAL_ID)* "]"
+
+// ═══ Arbiter (meta-constraint governing what can evolve) ══════════════════
+arbiter_decl: "arbiter" PASCAL_ID "{" arbiter_item+ "}"
+
+arbiter_item: "acceptable_evolution"  ":" str_list               -> ai_acceptable
+            | "never_acceptable"      ":" str_list               -> ai_never
+            | "requires_human_review" ":" str_list               -> ai_human_review
+            | "acceptance_monitor"    ":" "{" monitor_item+ "}"  -> ai_monitor
+
+str_list: "[" "]"
+        | "[" ESCAPED_STRING ("," ESCAPED_STRING)* "]"
+
+monitor_item: "threshold" ":" PI_NUMBER -> mi_threshold
+            | "window"    ":" duration  -> mi_window
+
+// ═══ Duration ═════════════════════════════════════════════════════════════
+duration: PI_NUMBER time_unit
+
+time_unit: TIME_UNIT_KW
+TIME_UNIT_KW: "seconds" | "second" | "minutes" | "minute" | "hours" | "hour" | "days" | "day" | "weeks" | "week"
+
+// ═══ Value (rhs of equality, map targets, if-conditions) ══════════════════
+pi_value: PI_NUMBER      -> pv_number
+        | "true"         -> pv_true
+        | "false"        -> pv_false
+        | ESCAPED_STRING -> pv_string
+        | state_ref      -> pv_state_ref
+
+// ═══ Terminals ════════════════════════════════════════════════════════════
+PI_NUMBER: /\d+(\.\d+)?/
+
+PASCAL_ID: /[A-Z][a-zA-Z0-9]*/
+SNAKE_ID:  /[a-z][a-z0-9_]*/
+
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/
+%ignore /\/\*(.|\n|\r)*?\*\//

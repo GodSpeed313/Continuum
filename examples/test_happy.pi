@@ -1,0 +1,86 @@
+// test_happy.pi — valid Pi Script file exercising all major constructs
+
+domain governance {
+    audit_interval: 5 minutes
+    tiebreaker: timestamp_asc
+}
+
+entity Sensor {
+    temperature: range(0..150)
+    status:      text
+    active:      boolean
+    mode:        identifier
+    reading:     integer
+}
+
+entity Controller {
+    output_level: range(0..100)
+    label:        text
+}
+
+// Rule type 1: range
+constraint TempInBounds {
+    priority:     critical
+    rule:         Sensor.temperature must remain within range(0..150)
+    on_violation: flag + escalate
+    decay_check:  24 hours
+    escalation {
+        at 3 violations: warn
+        at 5 violations: freeze
+    }
+}
+
+// Rule type 3: threshold
+constraint TempBelowMax {
+    priority:     high
+    rule:         Sensor.temperature must remain below 120 within 10 minutes
+    on_violation: warn
+}
+
+// Rule type 2: equality
+constraint SensorActive {
+    priority:     medium
+    rule:         Sensor.active must equal true
+    on_violation: flag
+}
+
+// Rule type 6: membership (requires a map block below)
+constraint StatusKnown {
+    priority:     low
+    rule:         Sensor.status must match mapped_values
+    on_violation: warn
+}
+
+// Rule type 4: if-rule with cond_compare
+constraint EscalateOnHeat {
+    priority:     high
+    rule:         if Sensor.temperature >= 100 then require escalate before freeze
+    on_violation: flag
+}
+
+map StatusMap {
+    target:   Sensor.status
+    maps_to:  "ok"
+    triggers: ["nominal", "good", "running"]
+}
+
+map StatusMapWarn {
+    target:   Sensor.status
+    maps_to:  "warn"
+    triggers: ["degraded", "slow", regex: "err.*"]
+}
+
+enforce {
+    entity:      Sensor
+    constraints: [TempInBounds, TempBelowMax, SensorActive, StatusKnown, EscalateOnHeat]
+}
+
+arbiter MainArbiter {
+    acceptable_evolution:  ["add_state", "relax_range"]
+    never_acceptable:      ["remove_constraint", "drop_entity"]
+    requires_human_review: ["change_priority"]
+    acceptance_monitor: {
+        threshold: 3
+        window:    24 hours
+    }
+}
