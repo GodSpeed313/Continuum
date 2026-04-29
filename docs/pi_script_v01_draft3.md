@@ -1,4 +1,5 @@
 # Pi Script v0.1 — Grammar Specification
+
 **AI Governance Domain — Draft 3**
 *A language for defining what must remain true while everything else changes.*
 *April 2026*
@@ -28,7 +29,7 @@ This document specifies Pi Script v0.1 — the minimal viable grammar for the AI
 ### 1.1 What Pi Script Does
 
 | Pi Script Does | Pi Script Does Not Do |
-|---|---|
+| --- | --- |
 | Define entities and their measurable states | Execute tasks or perform actions |
 | Declare constraints that must remain true | Replace Python, Rust, or any execution language |
 | Monitor system state against constraints | Understand abstract concepts natively |
@@ -39,7 +40,7 @@ This document specifies Pi Script v0.1 — the minimal viable grammar for the AI
 ### 1.2 Where Pi Script Sits
 
 | Layer | Name | Responsibility |
-|---|---|---|
+| --- | --- | --- |
 | Layer 3 | RIFT | Intent & System Design — *What should this system be?* |
 | Layer 2 | PI SCRIPT | Governance & Coherence — *Is it still what it should be?* |
 | Layer 1 | Execution Layer | Classical / GPU / Quantum backends |
@@ -56,7 +57,7 @@ Every Pi Script file begins with a domain declaration. The domain scopes all ent
 
 > **Draft 3 change:** `audit_interval` is a domain-level field only. It controls how often the resolver runs a full domain coherence pass across all constraints. It is not a per-constraint setting. Per-constraint re-evaluation cadence is controlled by `decay_check` on `constraint_decl` (Section 2.3).
 
-```
+```pi
 domain governance {
     audit_interval: 24 hours  // domain-wide coherence pass cadence
     tiebreaker: timestamp_asc
@@ -64,7 +65,7 @@ domain governance {
 ```
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | domain name | identifier (snake_case) — Required. Must be first line. |
 | audit_interval | Duration. How often the resolver runs a full domain coherence pass. Domain-wide. One value. |
 | tiebreaker | Tie-breaking rule when constraint evaluations produce equal priority. `timestamp_asc` or `timestamp_desc`. |
@@ -73,7 +74,7 @@ domain governance {
 
 An entity is the subject of governance. It has a name and a set of named states. States have types. In v0.1, states are observable — they are read by the monitor, never written by Pi Script directly.
 
-```
+```pi
 entity LLMAgent {
     state response_history : sequence(text)
     state policy_version   : integer
@@ -83,7 +84,7 @@ entity LLMAgent {
 ```
 
 | Type | Description |
-|---|---|
+| --- | --- |
 | `text` | Unstructured string. Requires map block to be constrained. |
 | `integer` | Whole number. Comparable directly. |
 | `range(min .. max)` | Decimal value within bounds. Violations outside bounds. |
@@ -97,7 +98,7 @@ A constraint is a rule that must remain true about an entity's state. Constraint
 
 > **Draft 3 change:** `decay_check` is now a field on `constraint_decl`, not on `enforce`. It controls the cold-path fallback re-evaluation interval for this constraint specifically. It is independent of `audit_interval`. A high-sensitivity constraint may have `decay_check: 1 hour` while `audit_interval` is `24 hours`.
 
-```
+```pi
 constraint NeverContradictPolicy {
     monitor    : LLMAgent.response_history
     against    : company_policy.current_version
@@ -111,7 +112,7 @@ constraint NeverContradictPolicy {
 ```
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | monitor | The entity state being watched. Format: `entity.state` |
 | against | External reference state to compare against. Optional. |
 | window | Time window for historical evaluation. Format: `N (days\|hours\|minutes)` |
@@ -123,7 +124,7 @@ constraint NeverContradictPolicy {
 **Priority levels:**
 
 | Priority | Meaning |
-|---|---|
+| --- | --- |
 | `critical` | Never violated. Overrides all lower priorities. Freeze on conflict. |
 | `high` | Violated only if critical constraint requires it. Escalate on conflict. |
 | `medium` | Standard enforcement. Warn on conflict. |
@@ -132,7 +133,7 @@ constraint NeverContradictPolicy {
 **Violation actions:**
 
 | Action | Effect |
-|---|---|
+| --- | --- |
 | `flag` | Log violation with full RESOLUTION TRACE. No system halt. |
 | `warn` | Surface warning to operator interface. System continues. |
 | `escalate` | Route to human review queue with trace attached. |
@@ -147,7 +148,7 @@ A map block translates human-language expressions into measurable machine states
 
 > **Draft 3 change:** Multiple map blocks may share the same `target` field. The resolver unions the `maps_to` values across all matching map blocks to form the complete valid membership set for a `membership_rule`. This is the only non-obvious behavior of the implicit map-to-constraint link.
 
-```
+```pi
 map StatusMap {
     target:   Sensor.status
     maps_to:  "ok"
@@ -171,7 +172,7 @@ An enforce block activates a set of constraints against a named entity. Constrai
 
 > **Draft 3 change:** Shape B is the canonical v0.1 enforce syntax. Shape A (with `on`, `since`, `decay_check` fields) is retired and produces a compile error. `enforce` has exactly two fields: `entity` and `constraints`. No exceptions for v0.1. `decay_check` has moved to `constraint_decl` (Section 2.3).
 
-```
+```pi
 enforce {
     entity:      CustomerServiceAgent
     constraints: [NeverContradictPolicy, MaintainProfessionalTone, PolicyVersionCurrent]
@@ -179,7 +180,7 @@ enforce {
 ```
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | entity | The entity name constraints are activated against. Required. |
 | constraints | List of constraint names to enforce on this entity. Required. At least one. |
 
@@ -187,7 +188,7 @@ enforce {
 
 The arbiter block defines what kinds of system evolution are acceptable. Arbiter definitions are immutable at runtime. They can only be changed through versioned spec updates, never through runtime proposals.
 
-```
+```pi
 arbiter ContinuumArbiter {
     acceptable_evolution: [
         weight_adjustment within bounds(minus 15%, plus 15%),
@@ -219,7 +220,7 @@ Every constraint evaluation produces a RESOLUTION TRACE. This is the Semantic De
 ### 3.1 Trace Fields Reference
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | Timestamp | Required. ISO 8601. Millisecond precision. |
 | Domain | Required. Must match domain declaration. |
 | Entity | Required. Name + session_id if available. |
@@ -237,7 +238,7 @@ Every constraint evaluation produces a RESOLUTION TRACE. This is the Semantic De
 
 The following is a complete, valid Pi Script v0.1 program. It reflects all Draft 3 rulings: Shape B enforce, `decay_check` on `constraint_decl`, `audit_interval` on domain.
 
-```
+```pi
 domain governance {
     audit_interval: 24 hours
     tiebreaker: timestamp_asc
@@ -303,7 +304,7 @@ arbiter ContinuumArbiter {
 ### 5.1 File Structure Rules
 
 | Rule | Enforcement |
-|---|---|
+| --- | --- |
 | domain declaration must be first | Compile error if absent or misplaced |
 | One domain per file | Compile error if multiple domain declarations found |
 | All entity references must be declared | Compile error if constraint references undeclared entity |
@@ -316,7 +317,7 @@ arbiter ContinuumArbiter {
 ### 5.2 Naming Rules
 
 | Construct | Naming Rule |
-|---|---|
+| --- | --- |
 | domain | snake_case. Lowercase. No spaces. |
 | entity | PascalCase. Must be unique within domain. |
 | state | snake_case. Must be unique within entity. |
@@ -328,7 +329,7 @@ arbiter ContinuumArbiter {
 
 Only the following rule forms are valid in v0.1:
 
-```
+```pi
 // Form 1: Direct comparison
 rule : state_name must remain within range(min .. max)
 
@@ -357,7 +358,7 @@ rule : agent must feel helpful             // unmeasurable — compile error
 Every failure mode has a defined safe state. Pi Script runtimes must implement all of the following. There is no undefined behavior.
 
 | Failure Mode | Detection | Safe State |
-|---|---|---|
+| --- | --- | --- |
 | All proposals rejected by Arbiter | Stall counter exceeds 10 in 24h | Freeze evolution layer. Surface stall log to operator. |
 | Arbiter deadlock | Resolution timeout > 5 seconds | Fail to last known good state. Human review required. |
 | Evolution Observer gaming Arbiter | Acceptance rate > baseline + 20% | Freeze evolution layer. Full audit triggered. |
@@ -371,7 +372,7 @@ Every failure mode has a defined safe state. Pi Script runtimes must implement a
 ## VII. Explicitly Out of Scope — v0.1
 
 | Feature | Target Version |
-|---|---|
+| --- | --- |
 | Adaptive constraints (behavior evolves) | v0.3 |
 | Bidirectional map blocks | v0.2 |
 | Semantic similarity map matching | v0.2 |
@@ -389,12 +390,12 @@ Every failure mode has a defined safe state. Pi Script runtimes must implement a
 **Gate condition:** A non-expert reads a RESOLUTION TRACE from a real AI governance scenario and understands why the system acted.
 
 | Milestone | Status |
-|---|---|
+| --- | --- |
 | M1 — Formalization: Grammar finalized. All v0.1 constructs specified. | ✅ Complete |
 | M2 — Semantic Validator: IR extraction, None guards, 12/12 tests passing. | ✅ Complete |
-| M3 — Parser: Accepts valid programs. Rejects invalid with human-readable errors. | ⬜ Next |
-| M4 — Resolver Core: CSP resolver. Evaluates constraints. Produces RESOLUTION TRACEs. | ⬜ Pending M3 |
-| M5 — Dogfood: 30 days. 3+ real violations detected and traced. | ⬜ Pending M4 |
+| M3 — Parser: Accepts valid programs. Rejects invalid with human-readable errors. | ✅ Complete |
+| M4 — Resolver Core: CSP resolver. Evaluates constraints. Produces RESOLUTION TRACEs. | ✅ Complete |
+| M5 — Dogfood: 30 days. 3+ real violations detected and traced. | 🔄 Active |
 | M6 — Publish: Negative result paper. Public playground. Grammar spec public. | ⬜ Pending M5 |
 
 ---
@@ -423,15 +424,15 @@ Constraint evaluation is event-driven. New state input triggers immediate re-eva
 
 ### 9.2 Draft 3 Discrepancy Rulings
 
-**Ruling — Discrepancy 1 — audit_interval vs decay_check**
+#### Ruling — Discrepancy 1 — audit_interval vs decay_check
 
 Both constructs exist and are not duplicates. `audit_interval` is a domain-level field set once in the domain block. It controls how often the resolver runs a full domain coherence pass across all constraints. `decay_check` is a per-constraint field on `constraint_decl`. It controls the cold-path fallback re-evaluation interval for that specific constraint only. They are independent. A constraint's `decay_check` can fire more or less frequently than `audit_interval`. Both are valid v0.1 constructs.
 
-**Ruling — Discrepancy 2 — enforce block structure**
+#### Ruling — Discrepancy 2 — enforce block structure
 
 Shape B is the canonical v0.1 enforce syntax. `enforce` has exactly two fields: `entity` and `constraints`. Shape A (with `on`, `since`, `decay_check` fields) is retired and produces a compile error. `decay_check` has moved to `constraint_decl` where it belongs — per-constraint, not per-enforce. The enforce block's single responsibility is: bind a named entity to a list of named constraints. Nothing else.
 
-**Ruling — Discrepancy 3 — map-to-constraint linking**
+#### Ruling — Discrepancy 3 — map-to-constraint linking
 
 The link is implicit and canonical for v0.1. A `membership_rule` matches all map blocks whose `target` field equals the rule's `state_ref`. The resolver unions the `maps_to` values across all matching map blocks to form the complete valid membership set. No `uses_map` declaration exists in v0.1. The validator's `_check_membership_rules_have_maps` check is the enforcement mechanism. Multiple map blocks may share the same target — this is valid and expected.
 
@@ -444,7 +445,7 @@ The resolver takes the validated IR and evaluates constraints against live entit
 ### 10.1 Inputs
 
 | Input | Description |
-|---|---|
+| --- | --- |
 | Validated IR (JSON) | Output of M2 validator. Fully trusted. |
 | Entity state snapshot | Current observable state for the entity under evaluation. |
 | Response history | Sequence of `{ text, state_ref, timestamp }` entries. Required for contradiction detection (Q2). |
@@ -453,7 +454,7 @@ The resolver takes the validated IR and evaluates constraints against live entit
 ### 10.2 Outputs
 
 | Output | Description |
-|---|---|
+| --- | --- |
 | RESOLUTION TRACE (JSON + human text) | Full evaluation record. Always produced, even on SATISFIED. |
 | Action directives | Ordered list of violation actions to execute. Empty if all constraints satisfied. |
 | System state | Final entity state: `running`, `frozen`, or `escalated`. |
@@ -491,7 +492,7 @@ Implements Q3 resolution. Per-constraint. Independent of `audit_interval`.
 ## XI. Document Status
 
 | Field | Value |
-|---|---|
+| --- | --- |
 | Document version | Draft 3 |
 | Grammar version | Pi Script v0.1 |
 | Stack | Continuum |
@@ -503,4 +504,4 @@ Implements Q3 resolution. Per-constraint. Independent of `audit_interval`.
 
 ---
 
-*— End of Draft 3 —*
+— End of Draft 3 —
