@@ -1,0 +1,84 @@
+// Pi Script v0.1 — M5 Dogfood Policy
+// Domain: Continuum project AI assistant governance
+// One snapshot per Claude Code working session; observer fills three fields manually.
+
+domain ai_usage_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+}
+
+entity ContinuumSession {
+    spec_version:  integer
+    scope_flag:    boolean
+    session_topic: text
+    session_id:    identifier
+}
+
+// ─── Maps ─────────────────────────────────────────────────────────────────────
+// session_topic must be set to the maps_to value ("structure", "runtime", or "spec"),
+// not a raw topic name. Triggers are reserved for M6 contradiction detection.
+
+map StructureTopic {
+    target:   ContinuumSession.session_topic
+    triggers: ["entity", "constraint", "map", "enforce", "arbiter", "domain", "grammar", "syntax"]
+    maps_to:  "structure"
+}
+
+map RuntimeTopic {
+    target:   ContinuumSession.session_topic
+    triggers: ["resolver", "trace", "validator", "violation", "escalation", "decay_check", "heartbeat", "audit interval"]
+    maps_to:  "runtime"
+}
+
+map SpecTopic {
+    target:   ContinuumSession.session_topic
+    triggers: ["Draft 3", "spec ruling", "spec version", "binding decision", "interpretation"]
+    maps_to:  "spec"
+}
+
+// ─── Constraints ──────────────────────────────────────────────────────────────
+
+constraint SpecAlignment {
+    priority:     critical
+    rule:         ContinuumSession.spec_version must equal 3
+    on_violation: flag + escalate
+    decay_check:  7 days
+}
+
+constraint ScopeGuard {
+    priority:     critical
+    rule:         ContinuumSession.scope_flag must equal false
+    on_violation: flag + escalate
+}
+
+constraint TopicCompliance {
+    priority:     medium
+    rule:         ContinuumSession.session_topic must match mapped_values
+    on_violation: flag
+}
+
+// Satisfies trivially without response_history; activates when M6 adds history logging.
+constraint ConsistencyGuard {
+    priority:     high
+    rule:         if ContinuumSession.session_topic contradicts prior_response(same_topic) then require flag_revision before responding
+    on_violation: flag + escalate
+}
+
+// ─── Enforcement ──────────────────────────────────────────────────────────────
+
+enforce {
+    entity:      ContinuumSession
+    constraints: [SpecAlignment, ScopeGuard, TopicCompliance, ConsistencyGuard]
+}
+
+// ─── Arbiter ──────────────────────────────────────────────────────────────────
+
+arbiter ContinuumArbiter {
+    acceptable_evolution:  ["decay_interval_tuning", "topic_coverage_expansion", "escalation_threshold_tuning"]
+    never_acceptable:      ["spec_version_downgrade", "constraint_removal", "scope_flag_bypass", "audit_disable"]
+    requires_human_review: ["entity_field_addition", "enforcement_scope_change", "new_constraint"]
+    acceptance_monitor: {
+        threshold: 0.9
+        window:    30 days
+    }
+}

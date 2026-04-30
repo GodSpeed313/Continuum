@@ -1,0 +1,10 @@
+{
+  "trigger_type": "event",
+  "entity": "ContinuumSession",
+  "entity_state": {
+    "spec_version":  3,
+    "scope_flag":    false,
+    "session_topic": "runtime",
+    "session_id":    "session-2026-04-29"
+  }
+}
