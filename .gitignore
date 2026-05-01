@@ -29,6 +29,9 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Secrets
+.env
+
 # Pi Script runtime artifacts
 *.pi.trace
 *.pi.ir
