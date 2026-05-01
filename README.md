@@ -178,6 +178,11 @@ continuum/
 ├── examples/
 │   ├── tasks.pi                   # Working example — AI task agent governance
 │   └── test_happy.pi              # Happy path file exercising all rule forms
+├── m5/
+│   ├── dogfood.pi                 # M5 dogfood policy — governs Continuum AI assistant usage
+│   ├── ir.json                    # Compiled IR for dogfood.pi
+│   ├── state.json                 # Session state snapshot — update before each daily run
+│   └── traces/                    # Violation traces saved here (target: 3 over 30 days)
 ├── pi_script/
 │   ├── pi_script.lark             # Lark grammar
 │   ├── parser.py                  # LALR parser wrapper
@@ -189,6 +194,8 @@ continuum/
 │   ├── test_validator.py          # M2 — 12 tests
 │   ├── test_trace.py              # trace.py — 31 tests
 │   └── test_resolver.py           # M4 — 38 tests
+├── log_session.py                 # M5 daily runner — resolves dogfood.pi against current state
+├── pi_monitor.py                  # Pi device health monitor — posts resolver status to Discord
 ├── state.json                     # Example state snapshot (locked schema)
 └── requirements.txt
 ```

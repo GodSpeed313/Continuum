@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pi_script.resolver import resolve
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 ROOT = Path(__file__).parent
 M5   = ROOT / "m5"
 

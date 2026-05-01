@@ -22,12 +22,16 @@ ENV/
 # IDEs
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets
+.env
 
 # Pi Script runtime artifacts
 *.pi.trace
