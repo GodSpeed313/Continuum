@@ -1,0 +1,33 @@
+
+RESOLUTION TRACE
+════════════════════════════════════════════════════════
+Timestamp    : 2026-05-17T23:50:34.641Z
+Domain       : ai_usage_governance
+Entity       : ContinuumSession [session_id: session-2026-05-17-violation-test]
+Trigger      : event — state snapshot received for ContinuumSession
+════════════════════════════════════════════════════════
+├── CONSTRAINT: SpecAlignment [priority: critical]
+│   ├── Rule kind  : equality_rule
+│   ├── Evaluation : spec_version is 2, expected 3
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : flag + escalate
+│
+├── CONSTRAINT: ScopeGuard [priority: critical]
+│   ├── Rule kind  : equality_rule
+│   ├── Evaluation : scope_flag = False, equals expected False
+│   └── ✓ SATISFIED — no action
+│
+├── CONSTRAINT: TopicCompliance [priority: medium]
+│   ├── Rule kind  : membership_rule
+│   ├── Evaluation : session_topic = 'runtime', matched in valid set ['runtime', 'spec', 'structure']
+│   └── ✓ SATISFIED — no action
+│
+└── CONSTRAINT: ConsistencyGuard [priority: high]
+│   ├── Rule kind  : contradiction_rule
+│   ├── Evaluation : no response history to evaluate
+│   └── ✓ SATISFIED — no action
+│
+└── RESOLUTION
+    ├── Action       : flag + escalate
+    ├── System state : escalated
+    └── The rule 'SpecAlignment' was broken: spec_version is 2, expected 3. This has been logged and sent to a human reviewer. The issue has been passed to a human reviewer.
