@@ -395,8 +395,8 @@ Every failure mode has a defined safe state. Pi Script runtimes must implement a
 | M2 — Semantic Validator: IR extraction, None guards, 12/12 tests passing. | ✅ Complete |
 | M3 — Parser: Accepts valid programs. Rejects invalid with human-readable errors. | ✅ Complete |
 | M4 — Resolver Core: CSP resolver. Evaluates constraints. Produces RESOLUTION TRACEs. | ✅ Complete |
-| M5 — Dogfood: 30 days. 3+ real violations detected and traced. | 🔄 Active |
-| M6 — Publish: Negative result paper. Public playground. Grammar spec public. | ⬜ Pending M5 |
+| M5 — Dogfood: 3+ real violations detected and traced across two independent systems over a 23-day active run. | ✅ Gate met (6+ violations — 2 Continuum session + 4+ Melody Maestro automated) |
+| M6 — Publish: Negative result paper. Public playground. Grammar spec public. | 🔄 In progress — see docs/m6_paper_draft1.md |
 
 ---
 

@@ -26,7 +26,7 @@ for long-term robustness.
 
 - [x] M1 — Grammar finalized
 - [x] M2 — Semantic validator, 12/12 tests passing
-- [ ] M3 — Parser hardening (next)
-- [ ] M4 — Resolver core
-- [ ] M5 — Dogfood (30 days)
-- [ ] M6 — Publish
+- [x] M3 — Parser — 9/9 tests passing
+- [x] M4 — Resolver core — 89/89 tests passing
+- [x] M5 — Dogfood — gate met (6+ violations across two independent systems: 2 Continuum session + 4+ Melody Maestro automated, 23-day active run)
+- [ ] M6 — Publish (paper drafted at docs/m6_paper_draft1.md · playground pending)
