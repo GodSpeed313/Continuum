@@ -136,7 +136,7 @@ enforce {
 ```
 
 The full working example with all six rule forms is in [`examples/tasks.pi`](examples/tasks.pi).  
-The grammar specification is in [`docs/pi_script_v01_draft3.md`](docs/pi_script_v01_draft3.md).
+The grammar specification is in [`docs/pi_script_v01_draft3.md`](docs/pi_script_v01_draft3.md) (Draft 4).
 
 ---
 
@@ -158,12 +158,12 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 
 | Milestone | Status |
 |---|---|
-| M1 — Grammar specification, Draft 3 | ✅ Complete |
+| M1 — Grammar specification, Draft 4 | ✅ Complete |
 | M2 — Semantic validator | ✅ Complete — 12/12 tests |
 | M3 — Parser formal sign-off | ✅ Complete — 9/9 tests |
 | M4 — Resolver core + RESOLUTION TRACEs | ✅ Complete — 89/89 tests |
-| M5 — Dogfood (30 days, real violations detected) | 🔄 In progress |
-| M6 — Publish (paper + public playground) | ⬜ Pending M5 |
+| M5 — Dogfood (23-day active run, 6+ violations across two independent systems) | ✅ Complete |
+| M6 — Publish (paper + public playground) | 🔄 In progress |
 
 89 tests passing across parser, validator, trace builder, and resolver.
 
@@ -174,29 +174,36 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 ```
 continuum/
 ├── docs/
-│   └── pi_script_v01_draft3.md   # Full grammar specification
+│   ├── pi_script_v01_draft3.md      # Full grammar specification (Draft 4)
+│   ├── m6_paper_draft1.md           # M6 publication draft — M5 findings
+│   └── continuum_layer_boundaries.md # Layer boundary reference — what belongs where
+├── es/
+│   ├── es_governance.pi             # Pi Script policy for Elasticsearch governance
+│   ├── es_adapter.py                # State adapter — queries ES, writes state.json
+│   └── baseline.json                # Committed mapping hash — schema governance source of truth
 ├── examples/
-│   ├── tasks.pi                   # Working example — AI task agent governance
-│   └── test_happy.pi              # Happy path file exercising all rule forms
+│   ├── tasks.pi                     # Working example — AI task agent governance
+│   └── test_happy.pi                # Happy path file exercising all rule forms
 ├── m5/
-│   ├── dogfood.pi                 # M5 dogfood policy — governs Continuum AI assistant usage
-│   ├── ir.json                    # Compiled IR for dogfood.pi
-│   ├── state.json                 # Session state snapshot — update before each daily run
-│   └── traces/                    # Violation traces saved here (target: 3 over 30 days)
+│   ├── dogfood.pi                   # M5 dogfood policy — governs Continuum AI assistant usage
+│   ├── ir.json                      # Compiled IR for dogfood.pi
+│   ├── state.json                   # Session state snapshot — update before each daily run
+│   └── traces/                      # RESOLUTION TRACE logs — M5 violation record
 ├── pi_script/
-│   ├── pi_script.lark             # Lark grammar
-│   ├── parser.py                  # LALR parser wrapper
-│   ├── validator.py               # Semantic validator — produces IR
-│   ├── resolver.py                # Constraint evaluator — produces RESOLUTION TRACEs
-│   └── trace.py                   # Trace builder, renderer, human_text generator
+│   ├── pi_script.lark               # Lark grammar
+│   ├── parser.py                    # LALR parser wrapper
+│   ├── validator.py                 # Semantic validator — produces IR
+│   ├── resolver.py                  # Constraint evaluator — produces RESOLUTION TRACEs
+│   └── trace.py                     # Trace builder, renderer, human_text generator
+├── rift_design_note_draft2.md       # Rift (Layer 3) design — v0.1 intent layer spec
 ├── tests/
-│   ├── test_parser.py             # M1 + M3 — 9 tests
-│   ├── test_validator.py          # M2 — 12 tests
-│   ├── test_trace.py              # trace.py — 31 tests
-│   └── test_resolver.py           # M4 — 38 tests
-├── log_session.py                 # M5 daily runner — resolves dogfood.pi against current state
-├── pi_monitor.py                  # Pi device health monitor — posts resolver status to Discord
-├── state.json                     # Example state snapshot (locked schema)
+│   ├── test_parser.py               # M1 + M3 — 9 tests
+│   ├── test_validator.py            # M2 — 12 tests
+│   ├── test_trace.py                # trace.py — 31 tests
+│   └── test_resolver.py             # M4 — 38 tests
+├── log_session.py                   # M5 daily runner — resolves dogfood.pi against current state
+├── pi_monitor.py                    # Pi device health monitor — posts resolver status to Discord
+├── state.json                       # Example state snapshot (locked schema)
 └── requirements.txt
 ```
 
@@ -224,4 +231,4 @@ Scope discipline is a feature. These are deferred on purpose, not forgotten:
 
 ---
 
-*Pi Script v0.1 — Draft 3 — April 2026*
+Pi Script v0.1 — Draft 4 — May 2026
