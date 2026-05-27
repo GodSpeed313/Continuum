@@ -11,6 +11,8 @@
 - **Section 2.3:** constraint `rule` field description corrected — now references Section 5.3 for all valid rule forms. Previous text ("Uses if/then/require syntax") implied only Form 4 was valid.
 - **Section 5.3:** Form 3 (threshold rule) — `within window` clause marked optional. Without window, threshold applies to current instantaneous state value.
 - **Section IX:** Ruling 9.3 Discrepancy 4 added — threshold rule window optionality formally resolved.
+- **Section III:** Canonical ASCII tree trace format formally specified (Section 3.1). JSON identified as machine-readable serialization only — not the display format. Note added clarifying that JSON mock traces in external documents are non-canonical.
+- **docs/continuum_layer_boundaries.md:** New reference document — defines what belongs in each Continuum layer and establishes the adapter pattern for Layer 1 → Layer 2 state bridging.
 - **Section XI:** Document status updated to Draft 4.
 
 ---
@@ -226,7 +228,44 @@ Every constraint evaluation produces a RESOLUTION TRACE. This is the Semantic De
 
 **Gate condition:** A non-expert must be able to read a RESOLUTION TRACE and understand why the system acted. If they cannot, the trace format is broken, not the person.
 
-### 3.1 Trace Fields Reference
+### 3.1 Canonical Display Format
+
+The RESOLUTION TRACE has two representations:
+
+| Format | Purpose | Audience |
+| --- | --- | --- |
+| **ASCII tree** (canonical) | Human display — the gate condition format | Non-expert operators, human reviewers |
+| **JSON** | Machine-readable serialization — for programmatic processing | Resolvers, log pipelines, dashboards |
+
+The ASCII tree is the authoritative format. A runtime that only emits JSON does not satisfy the gate condition. Both formats must contain the same fields. When they conflict, the ASCII tree is correct.
+
+**Canonical ASCII tree structure:**
+
+```text
+RESOLUTION TRACE
+════════════════════════════════════════════════════════
+Timestamp    : <ISO 8601>
+Domain       : <domain name>
+Entity       : <EntityName> [session_id: <id>]
+Trigger      : <event | heartbeat> — <description>
+════════════════════════════════════════════════════════
+├── CONSTRAINT: <ConstraintName> [priority: <level>]
+│   ├── Rule kind  : <equality_rule | membership_rule | threshold_rule | contradiction_rule | conditional_rule>
+│   ├── Evaluation : <state field> = <value>, <comparison result>
+│   └── ✓ SATISFIED — no action
+│         OR
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : <on_violation value>
+│
+└── RESOLUTION
+    ├── Action       : <action taken>
+    ├── System state : <running | frozen | escalated>
+    └── <Human text — plain English, no jargon, non-expert readable>
+```
+
+> **Note on JSON traces in external documents:** A JSON mock trace (as may appear in application-level design documents) is a valid machine-readable representation but is NOT the canonical Pi Script trace format. Do not treat JSON traces as spec-compliant display output.
+
+### 3.2 Trace Fields Reference
 
 | Field | Description |
 | --- | --- |
