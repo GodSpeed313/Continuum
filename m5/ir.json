@@ -1,0 +1,150 @@
+{
+  "domain": "ai_usage_governance",
+  "audit_interval": {
+    "value": 24.0,
+    "unit": "hours"
+  },
+  "tiebreaker": "timestamp_asc",
+  "entities": {
+    "ContinuumSession": {
+      "spec_version": "integer",
+      "scope_flag": "boolean",
+      "session_topic": "text",
+      "session_id": "identifier"
+    }
+  },
+  "constraints": {
+    "SpecAlignment": {
+      "priority": "critical",
+      "rule": {
+        "kind": "equality_rule",
+        "ref": "ContinuumSession.spec_version",
+        "value": 3
+      },
+      "on_violation": [
+        "flag",
+        "escalate"
+      ],
+      "escalation": [],
+      "decay_check": {
+        "value": 7.0,
+        "unit": "days"
+      }
+    },
+    "ScopeGuard": {
+      "priority": "critical",
+      "rule": {
+        "kind": "equality_rule",
+        "ref": "ContinuumSession.scope_flag",
+        "value": false
+      },
+      "on_violation": [
+        "flag",
+        "escalate"
+      ],
+      "escalation": [],
+      "decay_check": null
+    },
+    "TopicCompliance": {
+      "priority": "medium",
+      "rule": {
+        "kind": "membership_rule",
+        "ref": "ContinuumSession.session_topic"
+      },
+      "on_violation": [
+        "flag"
+      ],
+      "escalation": [],
+      "decay_check": null
+    },
+    "ConsistencyGuard": {
+      "priority": "high",
+      "rule": {
+        "kind": "contradiction_rule",
+        "ref": "ContinuumSession.session_topic",
+        "require": "flag_revision",
+        "before": "responding"
+      },
+      "on_violation": [
+        "flag",
+        "escalate"
+      ],
+      "escalation": [],
+      "decay_check": null
+    }
+  },
+  "maps": {
+    "ContinuumSession.session_topic": [
+      {
+        "maps_to": "structure",
+        "triggers": [
+          "entity",
+          "constraint",
+          "map",
+          "enforce",
+          "arbiter",
+          "domain",
+          "grammar",
+          "syntax"
+        ]
+      },
+      {
+        "maps_to": "runtime",
+        "triggers": [
+          "resolver",
+          "trace",
+          "validator",
+          "violation",
+          "escalation",
+          "decay_check",
+          "heartbeat",
+          "audit interval"
+        ]
+      },
+      {
+        "maps_to": "spec",
+        "triggers": [
+          "Draft 3",
+          "spec ruling",
+          "spec version",
+          "binding decision",
+          "interpretation"
+        ]
+      }
+    ]
+  },
+  "enforce": {
+    "ContinuumSession": [
+      "SpecAlignment",
+      "ScopeGuard",
+      "TopicCompliance",
+      "ConsistencyGuard"
+    ]
+  },
+  "arbiter": {
+    "name": "ContinuumArbiter",
+    "acceptable_evolution": [
+      "decay_interval_tuning",
+      "topic_coverage_expansion",
+      "escalation_threshold_tuning"
+    ],
+    "never_acceptable": [
+      "spec_version_downgrade",
+      "constraint_removal",
+      "scope_flag_bypass",
+      "audit_disable"
+    ],
+    "requires_human_review": [
+      "entity_field_addition",
+      "enforcement_scope_change",
+      "new_constraint"
+    ],
+    "acceptance_monitor": {
+      "threshold": 0.9,
+      "window": {
+        "value": 30.0,
+        "unit": "days"
+      }
+    }
+  }
+}
