@@ -1,8 +1,17 @@
 # Pi Script v0.1 — Grammar Specification
 
-**AI Governance Domain — Draft 3**
+**AI Governance Domain — Draft 4**
 *A language for defining what must remain true while everything else changes.*
 *April 2026*
+
+---
+
+## Draft 4 — Changes from Draft 3
+
+- **Section 2.3:** constraint `rule` field description corrected — now references Section 5.3 for all valid rule forms. Previous text ("Uses if/then/require syntax") implied only Form 4 was valid.
+- **Section 5.3:** Form 3 (threshold rule) — `within window` clause marked optional. Without window, threshold applies to current instantaneous state value.
+- **Section IX:** Ruling 9.3 Discrepancy 4 added — threshold rule window optionality formally resolved.
+- **Section XI:** Document status updated to Draft 4.
 
 ---
 
@@ -116,7 +125,7 @@ constraint NeverContradictPolicy {
 | monitor | The entity state being watched. Format: `entity.state` |
 | against | External reference state to compare against. Optional. |
 | window | Time window for historical evaluation. Format: `N (days\|hours\|minutes)` |
-| rule | The condition that must hold. Uses if/then/require syntax. |
+| rule | The condition that must hold. All valid rule forms are defined in Section 5.3. |
 | priority | Determines resolution order when constraints conflict. |
 | on_violation | Action taken when rule is broken. See violation actions table. |
 | decay_check | Optional. Cold-path fallback re-evaluation interval for this constraint. Fires only when no new state has arrived within the interval. Independent of `audit_interval`. |
@@ -336,8 +345,9 @@ rule : state_name must remain within range(min .. max)
 // Form 2: Equality
 rule : state_name must equal reference_value
 
-// Form 3: Threshold
-rule : state_name must remain below N within window
+// Form 3: Threshold (window optional)
+rule : state_name must remain below N                // instantaneous — current state value only
+rule : state_name must remain below N within window  // historical — any value in window must satisfy
 
 // Form 4: Conditional
 rule : if condition then require action before outcome
@@ -432,6 +442,24 @@ Both constructs exist and are not duplicates. `audit_interval` is a domain-level
 
 Shape B is the canonical v0.1 enforce syntax. `enforce` has exactly two fields: `entity` and `constraints`. Shape A (with `on`, `since`, `decay_check` fields) is retired and produces a compile error. `decay_check` has moved to `constraint_decl` where it belongs — per-constraint, not per-enforce. The enforce block's single responsibility is: bind a named entity to a list of named constraints. Nothing else.
 
+#### Ruling — Discrepancy 4 — Threshold rule (Form 3) window optionality
+
+The `within window` clause on a threshold rule (Form 3) is optional. Without it, the threshold is evaluated against the entity's current instantaneous state value — no history required. With `within window`, the resolver checks all state values recorded within the window and flags if any exceed the threshold.
+
+This ruling legalizes instantaneous threshold constraints such as:
+
+```pi
+constraint HardwareIntegrity {
+    monitor     : QuantizationEngine.memory_latency_ratio
+    rule        : memory_latency_ratio must remain below 0.8
+    priority    : high
+    on_violation: rollback
+    decay_check : every 1 hour
+}
+```
+
+Hardware and real-time metrics are point-in-time by nature. Requiring a window on such constraints was an over-constraint. Both forms are valid v0.1.
+
 #### Ruling — Discrepancy 3 — map-to-constraint linking
 
 The link is implicit and canonical for v0.1. A `membership_rule` matches all map blocks whose `target` field equals the rule's `state_ref`. The resolver unions the `maps_to` values across all matching map blocks to form the complete valid membership set. No `uses_map` declaration exists in v0.1. The validator's `_check_membership_rules_have_maps` check is the enforcement mechanism. Multiple map blocks may share the same target — this is valid and expected.
@@ -493,14 +521,14 @@ Implements Q3 resolution. Per-constraint. Independent of `audit_interval`.
 
 | Field | Value |
 | --- | --- |
-| Document version | Draft 3 |
+| Document version | Draft 4 |
 | Grammar version | Pi Script v0.1 |
 | Stack | Continuum |
 | Domain scope | AI Governance |
 | Status | All open questions and discrepancies resolved. |
 | Next action | Begin M3 parser milestone. |
 | Implementation gate | Draft 3 is the canonical spec. Grammar must match before any resolver code is written. |
-| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved, resolver architecture added. Draft 3 — three discrepancy rulings merged, grammar canonicalized. |
+| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved, resolver architecture added. Draft 3 — three discrepancy rulings merged, grammar canonicalized. Draft 4 — threshold rule window optionality resolved (Ruling 9.3), Section 2.3 rule description corrected. |
 
 ---
 
