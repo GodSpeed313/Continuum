@@ -8,10 +8,10 @@ domain es_governance {
 }
 
 entity ElasticsearchIndex {
-    state schema_intact  : boolean
-    state replica_health : text
-    state shards_synced  : boolean
-    state index_name     : identifier
+    schema_intact:  boolean
+    replica_health: text
+    shards_synced:  boolean
+    index_name:     identifier
 }
 
 // ─── Maps ─────────────────────────────────────────────────────────────────────
@@ -34,21 +34,21 @@ constraint SchemaIntegrity {
     priority:     critical
     rule:         ElasticsearchIndex.schema_intact must equal true
     on_violation: freeze + escalate
-    decay_check:  every 1 hour
+    decay_check:1 hour
 }
 
 constraint ReplicaHealth {
     priority:     high
     rule:         ElasticsearchIndex.replica_health must match mapped_values
     on_violation: escalate
-    decay_check:  every 30 minutes
+    decay_check:30 minutes
 }
 
 constraint ShardSync {
     priority:     high
     rule:         ElasticsearchIndex.shards_synced must equal true
     on_violation: flag + escalate
-    decay_check:  every 15 minutes
+    decay_check:15 minutes
 }
 
 // ─── Enforcement ──────────────────────────────────────────────────────────────

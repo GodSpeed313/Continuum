@@ -1,6 +1,6 @@
 {
   "index": "governed-index",
-  "mapping_hash": "",
-  "recorded_at": "",
-  "note": "Run `python es_adapter.py --bootstrap` against a verified clean cluster to populate this file. Then commit it. This committed hash is the governance source of truth — any mapping change that is not preceded by a new committed baseline is a SchemaIntegrity violation."
+  "mapping_hash": "d27518ce0e5186dd5dde9ef55922a2d0",
+  "recorded_at": "2026-05-28T14:23:07.605765+00:00",
+  "note": "Baseline recorded after verified clean schema. Commit this file to lock the known-good state. Changing the baseline requires a deliberate commit \u2014 that is the audit trail."
 }
