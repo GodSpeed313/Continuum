@@ -545,6 +545,8 @@ def main() -> None:
         _fatal(f"Cannot read state file '{state_path}': {e}")
 
     trace, rendered, exit_code = resolve(ir, state)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print(rendered)
     sys.exit(exit_code)
 

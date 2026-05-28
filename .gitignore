@@ -1,39 +1,17 @@
+# Letta / Jetta agent session data
+.letta/
+
+# Claude local settings
+.claude/
+
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
+.env
 *.egg-info/
-*.egg
 dist/
 build/
-.eggs/
-
-# Pytest
-.pytest_cache/
-.cache/
-
-# Virtual environments
 .venv/
 venv/
-env/
-ENV/
-
-# IDEs
-.vscode/
-.idea/
-.claude/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Secrets
-.env
-
-# Pi Script runtime artifacts
-*.pi.trace
-*.pi.ir
-ir.json

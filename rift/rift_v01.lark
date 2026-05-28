@@ -1,0 +1,109 @@
+// Rift v0.1 — Intent Layer Grammar
+// Layer 3 of Continuum: maps user-declared intent to Pi Script constraints.
+// Intent Layer only. Semantic Layer (v0.2) and Execution Layer (v0.3) are out of scope.
+//
+// A valid Rift v0.1 program contains one or more map and intent declarations.
+// Constraint declarations are optional (hand-written, bypass the generator).
+// The output of compiling a Rift program is a Pi Script .pi file.
+
+start: top_level_stmt+
+
+top_level_stmt: intent_decl
+              | map_decl
+              | constraint_decl
+
+// ═══ Intent Declaration ═══════════════════════════════════════════════════
+// Minimum required fields: when_clause + treat_clause.
+// All other fields are optional. Order within the block is not enforced
+// by the grammar — the validator enforces required fields.
+
+intent_decl: "intent" PASCAL_ID "{" intent_item+ "}"
+
+intent_item: when_clause
+           | treat_clause
+           | until_clause
+           | enforce_clause
+           | releases_clause
+           | generates_clause
+           | priority_annotation
+
+// "when user declares: <pattern>"
+// The pattern string may contain [capture] references — parsed as text in v0.1.
+// The compiler extracts captures from the string at a later pass.
+when_clause: "when" "user" "declares" ":" ESCAPED_STRING
+
+// "treat: [capture] as state_value"
+treat_clause: "treat" ":" capture_ref "as" SNAKE_ID
+
+// "until: user declares <phrase>" OR "until: condition_name"
+until_clause: "until" ":" until_expr
+
+until_expr: "user" "declares" ESCAPED_STRING   -> until_user_declares
+          | SNAKE_ID                            -> until_condition_name
+
+// "enforce: <behavioral directive>"
+// Free-form directive in v0.1 — quoted string required.
+// Describes the behavioral constraint without generating a Pi Script rule.
+enforce_clause: "enforce" ":" ESCAPED_STRING
+
+// "releases: OtherIntentName for [capture]"
+// Explicitly closes a prior intent's constraint for the given capture.
+releases_clause: "releases" ":" PASCAL_ID "for" capture_ref
+
+// "generates: Pi Script constraint ConstraintName"
+// Names the Pi Script constraint this intent will produce on compile.
+generates_clause: "generates" ":" "Pi" "Script" "constraint" PASCAL_ID
+
+// "@priority: critical | high | medium"
+// Controls resolution order when declarations conflict (temporal precedence default).
+priority_annotation: "@priority" ":" priority_level
+
+// ═══ Map Declaration (inline, unidirectional) ══════════════════════════════
+// Bridges human-language patterns to machine state values.
+// v0.1: pattern matching only — no NLP, no inference.
+// Supports both → (Unicode U+2192) and -> (ASCII) as the arrow.
+//
+// Syntax: map "human phrase [capture]" → entity.field: state_value
+
+map_decl: "map" ESCAPED_STRING MAP_ARROW map_target ":" SNAKE_ID
+
+map_target: PASCAL_ID "." SNAKE_ID   -> target_pascal
+          | SNAKE_ID  "." SNAKE_ID   -> target_snake
+
+MAP_ARROW: /→|->/
+
+// ═══ Constraint Declaration (hand-written, no generator) ══════════════════
+// Allows constraints to be written directly without using the intent generator.
+// Subset of Pi Script constraint syntax — only the fields Rift needs for v0.1.
+
+constraint_decl: "constraint" PASCAL_ID "{" constraint_item+ "}"
+
+constraint_item: "priority"     ":" priority_level   -> c_priority
+               | "rule"         ":" ESCAPED_STRING   -> c_rule
+               | "on_violation" ":" violation_action -> c_on_violation
+
+// ═══ Priority ═════════════════════════════════════════════════════════════
+priority_level: PRIORITY_KW
+PRIORITY_KW: "critical" | "high" | "medium"
+
+// ═══ Violation actions ════════════════════════════════════════════════════
+// Subset of Pi Script violation actions — only the three Rift exposes in v0.1.
+violation_action: simple_action ("+" simple_action)?
+
+simple_action: ACTION_KW
+ACTION_KW: "flag" | "escalate" | "freeze"
+
+// ═══ Capture Reference ════════════════════════════════════════════════════
+// A named capture extracted from the intent's when_clause pattern.
+// Syntax: [capture_name]
+capture_ref: "[" SNAKE_ID "]"
+
+// ═══ Terminals ════════════════════════════════════════════════════════════
+PASCAL_ID: /[A-Z][a-zA-Z0-9]*/
+SNAKE_ID:  /[a-z][a-z0-9_]*/
+
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/
+%ignore /\/\*(.|\n|\r)*?\*\//

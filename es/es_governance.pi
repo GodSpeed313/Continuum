@@ -1,0 +1,71 @@
+// Pi Script v0.1 — Elasticsearch Governance Policy
+// Domain: Elasticsearch index schema and cluster health
+// Entity state populated by es/es_adapter.py before each resolver run.
+
+domain es_governance {
+    audit_interval: 1 hour
+    tiebreaker:     timestamp_asc
+}
+
+entity ElasticsearchIndex {
+    schema_intact:  boolean
+    replica_health: text
+    shards_synced:  boolean
+    index_name:     identifier
+}
+
+// ─── Maps ─────────────────────────────────────────────────────────────────────
+
+map HealthGreen {
+    target:   ElasticsearchIndex.replica_health
+    maps_to:  "healthy"
+    triggers: ["green"]
+}
+
+map HealthDegraded {
+    target:   ElasticsearchIndex.replica_health
+    maps_to:  "degraded"
+    triggers: ["yellow", "red"]
+}
+
+// ─── Constraints ──────────────────────────────────────────────────────────────
+
+constraint SchemaIntegrity {
+    priority:     critical
+    rule:         ElasticsearchIndex.schema_intact must equal true
+    on_violation: freeze + escalate
+    decay_check:1 hour
+}
+
+constraint ReplicaHealth {
+    priority:     high
+    rule:         ElasticsearchIndex.replica_health must match mapped_values
+    on_violation: escalate
+    decay_check:30 minutes
+}
+
+constraint ShardSync {
+    priority:     high
+    rule:         ElasticsearchIndex.shards_synced must equal true
+    on_violation: flag + escalate
+    decay_check:15 minutes
+}
+
+// ─── Enforcement ──────────────────────────────────────────────────────────────
+
+enforce {
+    entity:      ElasticsearchIndex
+    constraints: [SchemaIntegrity, ReplicaHealth, ShardSync]
+}
+
+// ─── Arbiter ──────────────────────────────────────────────────────────────────
+
+arbiter ESArbiter {
+    acceptable_evolution:  ["index_alias_change", "replica_count_tuning"]
+    never_acceptable:      ["mapping_field_removal", "field_type_change", "constraint_removal"]
+    requires_human_review: ["new_field_addition", "analyzer_change", "index_settings_change"]
+    acceptance_monitor: {
+        threshold: 0.9
+        window:    30 days
+    }
+}
