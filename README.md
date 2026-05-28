@@ -217,6 +217,43 @@ The full canonical example is in [`rift/shelved_projects.rift`](rift/shelved_pro
 
 ---
 
+## Governing a real system — Elasticsearch
+
+The adapter pattern bridges any Layer 1 system to Pi Script. The Elasticsearch adapter is the canonical example.
+
+```bash
+# 1. Start Elasticsearch (Docker)
+docker run -d --name elasticsearch -p 9200:9200 \
+  -e "discovery.type=single-node" \
+  -e "xpack.security.enabled=false" \
+  elasticsearch:8.13.4
+
+# 2. Create your index
+curl -X PUT "http://localhost:9200/governed-index" \
+  -H "Content-Type: application/json" \
+  -d '{"settings":{"number_of_shards":1,"number_of_replicas":0}}'
+
+# 3. Record the known-good schema as baseline (commit this to git)
+python es/es_adapter.py --bootstrap
+
+# 4. Run governance — adapter reads cluster state, resolver evaluates it
+python es/es_adapter.py
+python -m pi_script.resolver es/ir.json es/state.json
+```
+
+Any unauthorized schema change triggers `SchemaIntegrity` at critical priority:
+
+```
+├── CONSTRAINT: SchemaIntegrity [priority: critical]
+│   ├── Evaluation : schema_intact is False, expected True
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : freeze + escalate
+```
+
+The full policy is in [`es/es_governance.pi`](es/es_governance.pi). The adapter is in [`es/es_adapter.py`](es/es_adapter.py).
+
+---
+
 ## How it differs from output filters
 
 Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi Script governs **state over time** — it evaluates whether a system's observable behavior has drifted from declared constraints across a time window, across a session, across multiple responses. Different problem.
