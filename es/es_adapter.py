@@ -44,8 +44,9 @@ def mapping_hash(host: str, index: str) -> str:
 def replica_health(host: str, index: str) -> str:
     data = fetch_json(f"{host}/_cat/indices/{index}?h=health&format=json")
     if not data:
-        return "red"
-    return data[0].get("health", "red")
+        return "degraded"
+    raw = data[0].get("health", "red")
+    return "healthy" if raw == "green" else "degraded"
 
 
 def shards_synced(host: str, index: str) -> bool:

@@ -54,9 +54,9 @@ The gap none of these tools closes: **the full loop between human intent, policy
 generation, runtime monitoring, and human-reviewed violation capture in a single
 coherent architecture.**
 
-Pi Script closes two of these four steps. Rift (Layer 3, in design) closes the third.
+Pi Script closes two of these four steps. Rift (Layer 3, v0.1 shipped) closes the third.
 Human review through the Continuum loop closes the fourth. This paper documents what
-the first two steps look like in production.
+the first two steps look like in production, and reports the completion of the third.
 
 ---
 
@@ -70,8 +70,8 @@ Continuum is a three-layer governance stack:
 | Layer 2 | Pi Script | Governance and coherence — "Is it still what it should be?" |
 | Layer 1 | Execution | Classical / GPU / Quantum backends |
 
-Pi Script v0.1 is Layer 2. Rift (Layer 3) is in design as of this publication.
-Layer 1 is out of scope for v0.1.
+Pi Script v0.1 is Layer 2. Rift v0.1 (Layer 3, Intent Layer) shipped alongside
+this publication. Layer 1 is out of scope for v0.1.
 
 The full Continuum loop:
 
@@ -89,10 +89,10 @@ Humans review traces and decide what to do       [Human review]
 Decision feeds back as a new user declaration    [Rift — Layer 3]
 ```
 
-v0.1 delivers steps 3 and 4. Steps 1 and 2 (Rift) are roadmap.
-Step 6 (human review loop) is operational — every violation in M5 was
-reviewed by a human, and in two cases directly influenced subsequent
-development decisions.
+v0.1 delivers steps 1–4. Rift v0.1 ships the Intent Layer (grammar, parser,
+validator, compiler — 33 tests, full loop proven end-to-end). Step 6 (human
+review loop) is operational — every violation in M5 was reviewed by a human,
+and in two cases directly influenced subsequent development decisions.
 
 ---
 
@@ -117,7 +117,8 @@ This is not a limitation. It is the contribution.
 | Bidirectional map blocks | v0.2 | v0.2 |
 | Semantic similarity map matching | Requires inference engine | v0.2 |
 | Multiple arbiters per domain | v0.3 | v0.3 |
-| Rift Layer 3 integration | Design complete, implementation gated on M5 | v0.4 |
+| Rift Semantic Layer — `agent`, `state`, `behavior evolves` | Intent Layer shipped; Semantic Layer is next | Rift v0.2 |
+| Rift dynamic constraint generation | Requires full multi-phase resolver | Rift v0.2 |
 
 **Why scope discipline is the contribution:** A governance layer that silently
 accepts vague constraints provides false safety. A constraint that "should try to
@@ -226,7 +227,7 @@ philosophy gap.
 | OPA / Rego | None — manual | Manual | ✅ | None |
 | Microsoft AGT (April 2026) | None — manual | Manual | ✅ | Approval workflow (bolt-on) |
 | Guardrails AI | None | None | Output only | None |
-| **Continuum** | **Rift (v0.4)** | **Rift → Pi Script** | **✅ Pi Script** | **✅ Continuum loop** |
+| **Continuum** | **✅ Rift v0.1** | **✅ Rift → Pi Script** | **✅ Pi Script** | **✅ Continuum loop** |
 
 The specific gap in the approval workflow approach: humans review behavior.
 In Continuum, humans review **divergence from their own stated intent**. The human
@@ -280,16 +281,15 @@ history logging so ConsistencyGuard has real input to evaluate.
 detection becomes a live constraint. M6 will produce the first `contradiction_rule`
 violations in the Continuum dogfood.
 
-**Rift v0.1 grammar work begins.** With the M5 gate met, the Rift Intent Layer
-grammar specification starts. The grammar file (`rift/rift_v01.lark`) is the first
-artifact of Layer 3 implementation. The Intent Layer constructs (`intent`, `map`,
-`constraint`, `optimize`) follow the same discipline as Pi Script: spec first, no
-code until the grammar is written and reviewed.
+**Rift v0.1 shipped.** The Rift Intent Layer is complete — grammar (`rift/rift_v01.lark`),
+parser, semantic validator, and compiler. The compiler takes a validated Rift IR and emits
+a Pi Script `.pi` file that passes the Pi Script validator and resolves clean. 33 tests.
+Full loop proven: `.rift → parse → validate → compile → .pi → Pi Script validator → resolver`.
 
-**Public playground.** The M6 publication includes a public-facing playground where
-the resolver can be run against example state snapshots and constraints. The goal:
-a non-expert should be able to run the resolver and read the RESOLUTION TRACE without
-reading this paper first.
+**Public playground shipped.** `playground.ipynb` — a Jupyter notebook that walks through
+the full Continuum stack interactively: write a policy, validate it, run the resolver, trigger
+a violation, write a Rift program, compile it to Pi Script, and resolve it. All cells execute
+clean. A non-expert can run it and read the output without reading this paper first.
 
 ---
 
@@ -372,12 +372,13 @@ The constraint was redesigned. The system unfroze.
 
 | Milestone | Status |
 |---|---|
-| M1 — Grammar specification, Draft 3 | ✅ Complete |
+| M1 — Grammar specification, Draft 4 | ✅ Complete |
 | M2 — Semantic validator — 12/12 tests | ✅ Complete |
 | M3 — Parser — 9/9 tests | ✅ Complete |
 | M4 — Resolver core — 89/89 tests | ✅ Complete |
 | M5 — Dogfood — 6+ violations across two independent systems, 23-day active run | ✅ Gate met |
-| M6 — Publish (this paper) + public playground | 🔄 In progress |
+| Rift v0.1 — Intent Layer — 33/33 tests, full loop proven | ✅ Complete |
+| M6 — Publish (this paper) + public playground | ✅ Complete |
 
 ---
 

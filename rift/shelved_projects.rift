@@ -1,0 +1,22 @@
+// Rift v0.1 — Shelved Project Persistence
+// The canonical use case from the Rift design notes.
+// This is the minimal valid Rift program: one map pair, one intent.
+
+map "I shelved [project]"     -> project.state: dormant
+map "let's revisit [project]" -> project.state: active
+map "I'm done with [project]" -> project.state: closed
+
+intent RespectShelfedProjects {
+    when user declares: "I shelved [project]"
+    treat: [project] as dormant
+    until: user declares "let's revisit [project]"
+    enforce: "do not reference [project] unprompted"
+    generates: Pi Script constraint ShelvedProjectGuard
+}
+
+intent ReactivateProject {
+    when user declares: "let's revisit [project]"
+    treat: [project] as active
+    releases: RespectShelfedProjects for [project]
+    generates: Pi Script constraint ActiveProjectGuard
+}

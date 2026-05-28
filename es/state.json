@@ -1,0 +1,10 @@
+{
+  "trigger_type": "event",
+  "entity": "ElasticsearchIndex",
+  "entity_state": {
+    "schema_intact": true,
+    "replica_health": "healthy",
+    "shards_synced": true,
+    "index_name": "governed-index"
+  }
+}
