@@ -295,6 +295,7 @@ class PiValidator:
             target_ref = None
             maps_to_val = None
             triggers: list[str] = []
+            label: str | None = None
 
             for ch in node.children:
                 if not isinstance(ch, Tree):
@@ -310,13 +311,21 @@ class PiValidator:
                             triggers.append(str(entry.children[0]).strip('"'))
                         elif isinstance(entry, Tree) and entry.data == "regex_trigger":
                             triggers.append(f"regex:{str(entry.children[0]).strip(chr(34))}")
+                elif ch.data == "mi_label":
+                    raw = str(ch.children[0]).strip('"')
+                    if not raw:
+                        self.errors.append(
+                            "Map block label must be a non-empty string."
+                        )
+                    else:
+                        label = raw
 
             if target_ref is not None:
                 self.ir["maps"].setdefault(target_ref, [])
-                self.ir["maps"][target_ref].append({
-                    "maps_to":  maps_to_val,
-                    "triggers": triggers,
-                })
+                entry: dict = {"maps_to": maps_to_val, "triggers": triggers}
+                if label is not None:
+                    entry["label"] = label
+                self.ir["maps"][target_ref].append(entry)
 
     def _extract_enforce(self):
         for node in _subtrees(self.tree, "enforce_decl"):

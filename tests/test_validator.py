@@ -149,6 +149,7 @@ enforce {
         assert any("ModeCheck" in e for e in errors)
 
     def test_enforce_refs_undeclared_constraint_fails(self):
+
         source = """\
 domain test_domain {
     audit_interval: 1 hours
@@ -165,3 +166,51 @@ enforce {
         ok, errors, _ = _validate(source)
         assert not ok
         assert any("Nonexistent" in e for e in errors)
+
+
+_MAP_WITH_LABEL = """\
+domain test_domain {
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    current_mode: text
+}
+map SafeMode {
+    target:   Agent.current_mode
+    maps_to:  "safe_mode"
+    triggers: ["safe", "restricted"]
+    label:    "Safe Mode"
+}
+constraint ModeCheck {
+    priority: medium
+    rule: Agent.current_mode must match mapped_values
+    on_violation: warn
+}
+enforce {
+    entity: Agent
+    constraints: [ModeCheck]
+}
+"""
+
+_MAP_WITHOUT_LABEL = _MAP_WITH_LABEL.replace('    label:    "Safe Mode"\n', "")
+
+
+class TestBidirectionalMaps:
+    def test_label_field_parses_and_validates(self):
+        ok, errors, _ = _validate(_MAP_WITH_LABEL)
+        assert ok, errors
+
+    def test_label_stored_in_ir(self):
+        _, _, ir = _validate(_MAP_WITH_LABEL)
+        entries = ir["maps"]["Agent.current_mode"]
+        assert entries[0].get("label") == "Safe Mode"
+
+    def test_map_without_label_still_valid(self):
+        ok, errors, _ = _validate(_MAP_WITHOUT_LABEL)
+        assert ok, errors
+
+    def test_map_without_label_has_no_label_key_in_ir(self):
+        _, _, ir = _validate(_MAP_WITHOUT_LABEL)
+        entries = ir["maps"]["Agent.current_mode"]
+        assert "label" not in entries[0]

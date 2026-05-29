@@ -1,4 +1,4 @@
-// Pi Script v0.1 — Governance Language for the Continuum Stack
+// Pi Script v0.2 — Governance Language for the Continuum Stack
 // Milestone 1: Grammar + Parser
 // Layer 2 of Continuum: defines what must remain true while systems change.
 
@@ -95,6 +95,7 @@ map_item: "target"     ":" state_ref    -> mi_target
         | "triggers"   ":" trigger_list -> mi_triggers
         | "maps_to"    ":" pi_value     -> mi_maps_to
         | "match_mode" ":" match_mode   -> mi_match_mode
+        | "label"      ":" ESCAPED_STRING -> mi_label
 
 trigger_list: "[" trigger_entry ("," trigger_entry)* "]"
 

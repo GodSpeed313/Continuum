@@ -313,15 +313,18 @@ def _eval_membership(name, rule, priority, action, entity_state, maps_ir) -> dic
     if value is None:
         return _suspended(name, f"field '{field}' not in snapshot")
 
+    label = _label_for(ref, str(value), maps_ir)
+    display = f"{value!r} ({label})" if label else f"{value!r}"
+
     if str(value) not in valid_values:
         return _constraint_result(
             name, priority, "violated", "membership_rule",
-            f"{field} value {value!r} not in valid set {sorted(valid_values)}",
+            f"{field} value {display} not in valid set {sorted(valid_values)}",
             action=action,
         )
     return _constraint_result(
         name, priority, "satisfied", "membership_rule",
-        f"{field} = {value!r}, matched in valid set {sorted(valid_values)}",
+        f"{field} = {display}, matched in valid set {sorted(valid_values)}",
     )
 
 
@@ -468,6 +471,14 @@ def _action_to_system_state(action: str | None) -> str:
     if "escalate" in a:
         return "escalated"
     return "running"
+
+
+def _label_for(ref: str, value: str, maps_ir: dict) -> str | None:
+    """Reverse-lookup: given (state_ref, machine_value) return human label if declared."""
+    for entry in maps_ir.get(ref, []):
+        if str(entry.get("maps_to", "")) == value:
+            return entry.get("label")
+    return None
 
 
 def _field_from_ref(ref: str) -> str:
