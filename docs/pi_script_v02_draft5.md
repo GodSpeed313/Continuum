@@ -1,8 +1,17 @@
 # Pi Script v0.2 — Grammar Specification
 
-**AI Governance Domain — Draft 5**
+**AI Governance Domain — Draft 6**
 *A language for defining what must remain true while everything else changes.*
 *May 2026*
+
+---
+
+## Draft 6 — Changes from Draft 5
+
+- **Section 2.5:** Domain block gains optional `imports` field — list of `DOMAIN.CONSTRAINT` qualified references from sibling domains in the same file. Single-domain files without `imports` are unchanged.
+- **Section 5.4:** Resolver trace header annotates imported constraints with `(imported from DOMAIN)`.
+- **Section IX:** Ruling 9.5 — Cross-Domain Constraint Inheritance. Defines import syntax, entity name-matching rule, IR shape with `imported_from` marker, multi-domain file semantics, and circular import rejection.
+- **Section XI:** Document status updated to Draft 6.
 
 ---
 
@@ -192,16 +201,209 @@ No implementation step begins until the previous step has passing tests.
 
 ---
 
+---
+
+## Ruling 9.5 — Cross-Domain Constraint Inheritance
+
+**Status:** Binding for implementation. No code may be written against this ruling until this section is complete. This is the canonical v0.2 spec ruling for cross-domain constraint import.
+
+---
+
+### 9.5.1 Problem
+
+Pi Script v0.1 programs are single-domain: every constraint, entity, and map is declared within one `domain` block. When a governance policy spans multiple concerns — a `safety_core` domain with universal safety floors and an `ai_governance` domain with operational rules — the shared constraints must be copy-pasted into each domain. Copy-paste means drift: the `safety_core` floor can silently diverge from the `ai_governance` version.
+
+There is no current mechanism to declare a constraint once and reuse it across domains without duplication.
+
+---
+
+### 9.5.2 Design Decision
+
+Add an optional `imports` field to the `domain` block. The `imports` field lists one or more `DOMAIN_NAME.CONSTRAINT_NAME` references from sibling domains declared in the same file.
+
+**Ruling scope:** v0.2 import is **same-file only**. Multi-file resolution is deferred to v0.3.
+
+**Import is read-only and non-overridable.** The importing domain uses the imported constraint verbatim — its `priority`, `rule`, and `on_violation` cannot be changed at the import site. If a domain needs a modified version of a constraint, it declares a new constraint.
+
+**New domain block syntax (v0.2):**
+
+```
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+}
+
+entity Agent {
+    confidence_score: range(0.0 .. 1.0)
+}
+
+constraint ConfidenceFloor {
+    priority:     critical
+    rule:         Agent.confidence_score must remain within range(0.2 .. 1.0)
+    on_violation: freeze + escalate
+}
+
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+    imports:        [safety_core.ConfidenceFloor]
+}
+
+entity Agent {
+    confidence_score: range(0.0 .. 1.0)
+    current_mode:     text
+}
+
+constraint ModeCompliance {
+    priority:     high
+    rule:         Agent.current_mode must match mapped_values
+    on_violation: escalate
+}
+
+enforce {
+    entity:      Agent
+    constraints: [ConfidenceFloor, ModeCompliance]
+}
+```
+
+The importing domain's `enforce` block references the imported constraint by **simple name** (not qualified). The validator resolves `ConfidenceFloor` to the `safety_core.ConfidenceFloor` declaration.
+
+---
+
+### 9.5.3 Entity Name Matching
+
+An imported constraint targets a specific `ENTITY.FIELD` state ref. For the import to be valid, **the importing domain must declare an entity with the same name and the same field name as the constraint's target ref**.
+
+In the example above, `safety_core.ConfidenceFloor` targets `Agent.confidence_score`. The `ai_governance` domain declares `entity Agent { confidence_score: ... }`. The names match — import is valid.
+
+The field **type** is not required to be identical — the validator only checks name existence. Type widening/narrowing at import boundaries is a v0.3 concern.
+
+If the importing domain does not have a matching entity and field, the validator emits an error:
+
+```
+Import 'safety_core.ConfidenceFloor' targets 'Agent.confidence_score' but
+entity 'Agent' has no field 'confidence_score' in domain 'ai_governance'.
+```
+
+---
+
+### 9.5.4 Grammar Extension
+
+The `domain` block gains one optional `imports` item. The existing `domain_item` alternatives are unchanged.
+
+**Grammar rule delta (Lark):**
+
+```
+// v0.1
+domain_item : duration
+            | tiebreaker_mode
+
+// v0.2 — imports_item added
+domain_item : duration
+            | tiebreaker_mode
+            | imports_item
+
+imports_item : "imports" ":" "[" import_ref ("," import_ref)* "]"
+import_ref   : PASCAL_ID "." PASCAL_ID
+```
+
+`SNAKE_ID.PASCAL_ID` is the qualified reference `domain_name.ConstraintName`. Domain names use `SNAKE_ID` (snake_case); constraint names use `PASCAL_ID` (PascalCase) — consistent with existing Pi Script naming conventions.
+
+An empty `imports: []` is a parse error — the field is present but contains nothing. Validators must reject it. A domain with no imports simply omits the `imports` field entirely.
+
+---
+
+### 9.5.5 Resolver Semantics
+
+The resolver receives a merged IR. The validator is responsible for resolving imports before handing the IR to the resolver — the resolver sees **no difference** between a natively declared constraint and an imported one.
+
+**Import resolution (validator responsibility):**
+
+When the validator processes `imports: [safety_core.ConfidenceFloor]`:
+
+1. Find domain `safety_core` in the same parse tree.
+2. Locate constraint `ConfidenceFloor` in `safety_core`'s namespace.
+3. Copy the full constraint IR entry into the importing domain's `constraints` dict under key `"ConfidenceFloor"`.
+4. Mark the entry with `"imported_from": "safety_core"` (for trace transparency).
+
+**Trace annotation:**
+
+When an imported constraint appears in a RESOLUTION TRACE, the constraint header line includes the source domain in parentheses:
+
+```
+├── CONSTRAINT: ConfidenceFloor [priority: critical] (imported from safety_core)
+```
+
+This annotation is purely informational — it does not affect evaluation order, violation handling, or exit codes.
+
+---
+
+### 9.5.6 Validator Behavior
+
+The semantic validator (`validator.py`) must:
+
+1. Parse `imports` items in domain blocks and record `(source_domain, constraint_name)` pairs.
+2. For each import reference, verify the source domain is declared in the same file.
+3. For each import reference, verify the constraint name exists in the source domain.
+4. For each import reference, verify the importing domain has a matching entity+field for the constraint's state_ref.
+5. Copy the constraint IR entry into the importing domain's IR, adding `imported_from`.
+6. Reject duplicate names: if the importing domain declares a constraint with the same name as an import, emit an error.
+7. Reject circular imports: domain A imports from B, B imports from A → error.
+
+**IR shape delta (imported constraint entry):**
+
+```json
+{
+    "priority":     "critical",
+    "rule":         { "kind": "range_rule", "ref": "Agent.confidence_score", "lo": 0.2, "hi": 1.0 },
+    "on_violation": ["freeze", "escalate"],
+    "escalation":   [],
+    "decay_check":  null,
+    "imported_from": "safety_core"
+}
+```
+
+`imported_from` is absent for natively declared constraints. Resolver checks with `.get("imported_from")`.
+
+---
+
+### 9.5.7 Multi-Domain IR Structure
+
+When a file contains multiple domain blocks, the validator builds **one IR per domain** and resolves imports before returning. The resolver always receives a single-domain IR — the primary (last declared) domain's IR with all imports merged in.
+
+For v0.2, the primary domain is the **last** `domain` block in the file. Earlier domains are treated as source libraries. This convention avoids a new "primary" keyword and keeps the grammar minimal.
+
+---
+
+### 9.5.8 Backwards Compatibility
+
+Every valid Pi Script v0.1 and v0.2 (Ruling 9.4) program is a valid v0.2 (Ruling 9.5) program. Single-domain files with no `imports` field are processed identically to before. No existing field changes meaning.
+
+---
+
+### 9.5.9 Implementation Gate
+
+This ruling is complete. Implementation proceeds in the following order:
+
+1. **Grammar** — Add `imports_item` and `import_ref` rules to `pi_script.lark`
+2. **Validator** — Parse imports; resolve source domain + constraint; copy IR with `imported_from`; enforce entity name matching; reject circular imports and duplicate names
+3. **Resolver** — Read `imported_from` from constraint IR; annotate trace header line with `(imported from DOMAIN)` when present
+4. **Tests** — Single-domain file unaffected; import from sibling domain resolves correctly; missing source domain errors; missing entity/field errors; circular import errors; duplicate name errors; trace annotation present for imported constraints
+
+No implementation step begins until the previous step has passing tests.
+
+---
+
 ## XI. Document Status
 
 | Field | Value |
 |---|---|
-| Document version | Draft 5 |
+| Document version | Draft 6 |
 | Grammar version | Pi Script v0.2 |
 | Stack | Continuum |
 | Domain scope | AI Governance |
-| Status | Ruling 9.4 (Bidirectional Map Blocks) complete. Implementation gate open. |
-| Pending rulings | Cross-domain constraint inheritance (9.5), Persistent violation counters (9.6), Arbiter mandatory (9.7), Semantic similarity map matching (9.8) |
-| Implementation gate | Draft 5 Ruling 9.4 is the canonical spec for bidirectional maps. Grammar must match before resolver code is written. |
-| Base | Builds on Pi Script v0.1 Draft 4. All v0.1 rulings (9.1, 9.2, 9.3) remain binding. |
-| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). |
+| Status | Ruling 9.5 (Cross-Domain Constraint Inheritance) complete. Implementation gate open. |
+| Pending rulings | Persistent violation counters (9.6), Arbiter mandatory (9.7), Semantic similarity map matching (9.8) |
+| Implementation gate | Draft 6 Ruling 9.5 is the canonical spec for cross-domain imports. Grammar must match before validator code is written. |
+| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Draft 5. All prior rulings (9.1–9.4) remain binding. |
+| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). |
