@@ -552,5 +552,71 @@ class TestResolverInputErrors(unittest.TestCase):
             )
 
 
+# ── TestBidirectionalMaps ────────────────────────────────────────────────────
+
+def _membership_ir_with_label(label=None) -> dict:
+    entry = {"maps_to": "safe_mode", "triggers": ["safe", "restricted"]}
+    if label is not None:
+        entry["label"] = label
+    return _base_ir(
+        constraints={
+            "ModeCheck": {
+                "priority": "medium",
+                "rule": {"kind": "membership_rule", "ref": "TestAgent.current_mode"},
+                "on_violation": ["warn"],
+                "escalation": [],
+                "decay_check": None,
+            }
+        },
+        enforce_list=["ModeCheck"],
+        maps={"TestAgent.current_mode": [entry]},
+    )
+
+
+class TestBidirectionalMaps(unittest.TestCase):
+    def test_label_for_returns_label_when_present(self):
+        from pi_script.resolver import _label_for
+        maps = {"Agent.mode": [{"maps_to": "safe_mode", "triggers": [], "label": "Safe Mode"}]}
+        self.assertEqual(_label_for("Agent.mode", "safe_mode", maps), "Safe Mode")
+
+    def test_label_for_returns_none_when_absent(self):
+        from pi_script.resolver import _label_for
+        maps = {"Agent.mode": [{"maps_to": "safe_mode", "triggers": []}]}
+        self.assertIsNone(_label_for("Agent.mode", "safe_mode", maps))
+
+    def test_label_for_returns_none_for_unknown_ref(self):
+        from pi_script.resolver import _label_for
+        self.assertIsNone(_label_for("Agent.other", "safe_mode", {}))
+
+    def test_membership_satisfied_trace_includes_label(self):
+        ir = _membership_ir_with_label(label="Safe Mode")
+        state = _base_state({"current_mode": "safe_mode"})
+        trace, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 0)
+        evaluation = trace["constraints"][0]["evaluation"]
+        self.assertIn("Safe Mode", evaluation)
+
+    def test_membership_violated_trace_includes_label_for_invalid_value(self):
+        ir = _membership_ir_with_label(label="Safe Mode")
+        state = _base_state({"current_mode": "unknown_mode"})
+        trace, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 1)
+
+    def test_membership_without_label_trace_unchanged(self):
+        ir = _membership_ir_with_label(label=None)
+        state = _base_state({"current_mode": "safe_mode"})
+        trace, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 0)
+        evaluation = trace["constraints"][0]["evaluation"]
+        self.assertNotIn("(", evaluation)
+
+    def test_membership_satisfied_raw_value_still_shown(self):
+        ir = _membership_ir_with_label(label="Safe Mode")
+        state = _base_state({"current_mode": "safe_mode"})
+        trace, _, _ = resolve(ir, state)
+        evaluation = trace["constraints"][0]["evaluation"]
+        self.assertIn("safe_mode", evaluation)
+
+
 if __name__ == "__main__":
     unittest.main()
