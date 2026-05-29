@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).parent
 M5   = ROOT / "m5"
 
+DEFAULT_STATE_REF = "ContinuumSession.session_topic"
+
 
 def _load(path: Path) -> dict:
     for enc in ("utf-8-sig", "utf-16", "utf-8"):
@@ -23,10 +26,56 @@ def _load(path: Path) -> dict:
     sys.exit(2)
 
 
+def _append_response(state: dict, text: str, state_ref: str) -> None:
+    history = state.setdefault("response_history", [])
+    history.append({
+        "text":      text,
+        "state_ref": state_ref,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def _save_state(state: dict) -> None:
+    (M5 / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
 def main() -> None:
-    ir    = _load(M5 / "ir.json")
+    parser = argparse.ArgumentParser(
+        description="M5 daily runner — resolves dogfood.pi against current state"
+    )
+    parser.add_argument(
+        "--response",
+        metavar="TEXT",
+        help="Log a response entry for this session (appended to response_history)",
+    )
+    parser.add_argument(
+        "--state-ref",
+        metavar="REF",
+        default=DEFAULT_STATE_REF,
+        help=f"State ref (topic) for the response entry (default: {DEFAULT_STATE_REF})",
+    )
+    parser.add_argument(
+        "--clear-history",
+        action="store_true",
+        help="Clear response_history from state.json and exit",
+    )
+    args = parser.parse_args()
+
     state = _load(M5 / "state.json")
 
+    if args.clear_history:
+        state["response_history"] = []
+        _save_state(state)
+        print("[log_session] response_history cleared.")
+        return
+
+    if args.response:
+        _append_response(state, args.response, args.state_ref)
+        _save_state(state)
+        history = state.get("response_history", [])
+        print(f"[log_session] Response logged (history depth: {len(history)})")
+
+    ir = _load(M5 / "ir.json")
     _trace, rendered, exit_code = resolve(ir, state)
     print(rendered)
 

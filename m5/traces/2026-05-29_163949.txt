@@ -1,0 +1,34 @@
+
+RESOLUTION TRACE
+════════════════════════════════════════════════════════
+Timestamp    : 2026-05-29T16:39:49.854Z
+Domain       : ai_usage_governance
+Entity       : ContinuumSession [session_id: session-2026-05-17]
+Trigger      : event — state snapshot received for ContinuumSession
+════════════════════════════════════════════════════════
+├── CONSTRAINT: SpecAlignment [priority: critical]
+│   ├── Rule kind  : equality_rule
+│   ├── Evaluation : spec_version = 3, equals expected 3
+│   └── ✓ SATISFIED — no action
+│
+├── CONSTRAINT: ScopeGuard [priority: critical]
+│   ├── Rule kind  : equality_rule
+│   ├── Evaluation : scope_flag = False, equals expected False
+│   └── ✓ SATISFIED — no action
+│
+├── CONSTRAINT: TopicCompliance [priority: medium]
+│   ├── Rule kind  : membership_rule
+│   ├── Evaluation : session_topic = 'runtime', matched in valid set ['runtime', 'spec', 'structure']
+│   └── ✓ SATISFIED — no action
+│
+└── CONSTRAINT: ConsistencyGuard [priority: high]
+│   ├── Rule kind  : contradiction_rule
+│   ├── Evaluation : new response matches contradiction trigger 'constraint' against prior response on topic 'ContinuumSession.session_topic'
+│   ├── Map match  : 'constraint' -> contradiction signal
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : flag + escalate
+│
+└── RESOLUTION
+    ├── Action       : flag + escalate
+    ├── System state : escalated
+    └── This response may contradict earlier advice on the same topic. The rule 'ConsistencyGuard' has flagged it for review. This has been logged and sent to a human reviewer. The issue has been passed to a human reviewer.
