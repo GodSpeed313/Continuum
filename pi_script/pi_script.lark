@@ -1,14 +1,23 @@
 // Pi Script v0.2 — Governance Language for the Continuum Stack
 // Milestone 1: Grammar + Parser
 // Layer 2 of Continuum: defines what must remain true while systems change.
+// Ruling 9.5: multi-domain files supported — each domain_section groups a
+//             domain block with its associated declarations.
 
-start: domain_decl top_level_stmt*
+start: domain_section+
 
-// ═══ Domain (required first, exactly one per file) ════════════════════════
+// ═══ Domain section (one per domain; first = library, last = primary) ══════
+domain_section: domain_decl top_level_stmt*
+
+// ═══ Domain (required at start of each section) ═══════════════════════════
 domain_decl: "domain" SNAKE_ID "{" domain_item+ "}"
 
 domain_item: "audit_interval" ":" duration
            | "tiebreaker"     ":" tiebreaker_mode
+           | "imports"        ":" imports_item    -> di_imports
+
+imports_item: "[" import_ref ("," import_ref)* "]"
+import_ref: SNAKE_ID "." PASCAL_ID
 
 tiebreaker_mode: TIEBREAKER_KW
 TIEBREAKER_KW: "timestamp_asc" | "timestamp_desc" | "lexical_asc" | "explicit_rank"

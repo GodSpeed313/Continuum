@@ -22,10 +22,12 @@ class TestM1Gate:
         assert tree is not None
 
     def test_parse_tree_contains_domain_decl(self):
-        """Parse tree root has exactly one domain_decl child."""
+        """Parse tree root has one domain_section whose first child is a domain_decl."""
         tree, _ = parse_file(TASKS_PI)
-        domain_nodes = [c for c in tree.children if hasattr(c, "data") and c.data == "domain_decl"]
-        assert len(domain_nodes) == 1
+        section_nodes = [c for c in tree.children if hasattr(c, "data") and c.data == "domain_section"]
+        assert len(section_nodes) >= 1
+        first_section = section_nodes[0]
+        assert first_section.children[0].data == "domain_decl"
 
     def test_invalid_syntax_returns_error_not_exception(self):
         """Malformed Pi Script surfaces a human-readable error instead of raising."""
@@ -61,17 +63,24 @@ entity Agent {
         assert isinstance(error, str) and len(error) > 0
 
     def test_duplicate_domain_fails(self):
+        # Ruling 9.5: multiple domain sections are valid syntax; the validator
+        # rejects same-name duplicates. Different names parse cleanly.
         source = """\
 domain first_domain {
     audit_interval: 1 hours
+    tiebreaker: timestamp_asc
 }
-domain second_domain {
+domain first_domain {
     audit_interval: 1 hours
+    tiebreaker: timestamp_asc
 }
 """
         tree, error = parse_string(source, source_name="<test>")
-        assert tree is None, "Expected parse to fail on duplicate domain"
-        assert error is not None
+        assert tree is not None, "Multi-domain is valid syntax"
+        assert error is None
+        ok, errors, _ = PiValidator(tree).validate()
+        assert not ok
+        assert any("first_domain" in e for e in errors)
 
     def test_undeclared_entity_in_constraint_fails(self):
         # Syntactically valid — parser accepts it. Semantically invalid — validator

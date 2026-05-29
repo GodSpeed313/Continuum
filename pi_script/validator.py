@@ -1,11 +1,13 @@
 """
-Pi Script v0.1 — Semantic Validator (M2)
-Walks the Lark AST produced by parser.py and runs five semantic checks.
+Pi Script v0.2 — Semantic Validator
+Walks the Lark AST produced by parser.py and runs semantic checks.
+Supports multi-domain files (Ruling 9.5 — cross-domain imports).
 Returns: (is_valid: bool, errors: list[str], ir: dict)
 """
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from lark import Tree, Token
@@ -194,215 +196,338 @@ def _extract_violation_action(va_node: Tree) -> list[str]:
     return actions
 
 
+# ── IR factory & per-node processors (module-level, reused by PiValidator) ───
+
+def _empty_ir() -> dict[str, Any]:
+    return {
+        "domain":         None,
+        "audit_interval": None,
+        "tiebreaker":     "timestamp_asc",
+        "entities":       {},
+        "constraints":    {},
+        "maps":           {},
+        "enforce":        {},
+        "arbiter":        None,
+    }
+
+
+def _process_entity(node: Tree, ir: dict) -> None:
+    name = _tok(node, 0)
+    states: dict[str, str] = {}
+    for ch in node.children:
+        if isinstance(ch, Tree) and ch.data == "state_field":
+            states[_tok(ch, 0)] = _extract_state_type(ch.children[1])
+    ir["entities"][name] = states
+
+
+def _process_constraint(node: Tree, ir: dict) -> None:
+    name = _tok(node, 0)
+    rec: dict[str, Any] = {
+        "priority":     None,
+        "rule":         None,
+        "on_violation": [],
+        "escalation":   [],
+        "decay_check":  None,
+    }
+    for ch in node.children:
+        if not isinstance(ch, Tree):
+            continue
+        if ch.data == "c_priority":
+            rec["priority"] = _leaf_value(ch.children[0])
+        elif ch.data == "c_rule":
+            rec["rule"] = _extract_rule(ch.children[0])
+        elif ch.data == "c_on_violation":
+            rec["on_violation"] = _extract_violation_action(ch.children[0])
+        elif ch.data == "c_decay_check":
+            rec["decay_check"] = _extract_duration(ch.children[0])
+        elif ch.data == "c_escalation":
+            steps = []
+            for step in ch.children[0].children:
+                if isinstance(step, Tree) and step.data == "escalation_step":
+                    steps.append({
+                        "at":     float(_tok(step, 0)),
+                        "action": _leaf_value(step.children[1]),
+                    })
+            rec["escalation"] = steps
+    ir["constraints"][name] = rec
+
+
+def _process_map(node: Tree, ir: dict, errors: list) -> None:
+    target_ref  = None
+    maps_to_val = None
+    triggers: list[str] = []
+    label: str | None = None
+
+    for ch in node.children:
+        if not isinstance(ch, Tree):
+            continue
+        if ch.data == "mi_target":
+            target_ref = _state_ref_str(ch.children[0])
+        elif ch.data == "mi_maps_to":
+            maps_to_val = _extract_pi_value(ch.children[0])
+        elif ch.data == "mi_triggers":
+            for entry in ch.children[0].children:
+                if isinstance(entry, Tree) and entry.data == "trigger_entry":
+                    triggers.append(str(entry.children[0]).strip('"'))
+                elif isinstance(entry, Tree) and entry.data == "regex_trigger":
+                    triggers.append(f"regex:{str(entry.children[0]).strip(chr(34))}")
+        elif ch.data == "mi_label":
+            raw = str(ch.children[0]).strip('"')
+            if not raw:
+                errors.append("Map block label must be a non-empty string.")
+            else:
+                label = raw
+
+    if target_ref is not None:
+        ir["maps"].setdefault(target_ref, [])
+        map_entry: dict = {"maps_to": maps_to_val, "triggers": triggers}
+        if label is not None:
+            map_entry["label"] = label
+        ir["maps"][target_ref].append(map_entry)
+
+
+def _process_enforce(node: Tree, ir: dict) -> None:
+    entity_name: str | None = None
+    constraint_names: list[str] = []
+    for ch in node.children:
+        if not isinstance(ch, Tree):
+            continue
+        if ch.data == "ei_entity":
+            entity_name = str(ch.children[0])
+        elif ch.data == "ei_constraints":
+            for tok in ch.children[0].children:
+                if isinstance(tok, Token):
+                    constraint_names.append(str(tok))
+    if entity_name:
+        ir["enforce"][entity_name] = constraint_names
+
+
+def _process_arbiter(node: Tree, ir: dict) -> None:
+    rec: dict[str, Any] = {
+        "name":                  _tok(node, 0),
+        "acceptable_evolution":  [],
+        "never_acceptable":      [],
+        "requires_human_review": [],
+        "acceptance_monitor":    None,
+    }
+    for ch in node.children:
+        if not isinstance(ch, Tree):
+            continue
+        if ch.data == "ai_acceptable":
+            rec["acceptable_evolution"] = _str_list(ch.children[0])
+        elif ch.data == "ai_never":
+            rec["never_acceptable"] = _str_list(ch.children[0])
+        elif ch.data == "ai_human_review":
+            rec["requires_human_review"] = _str_list(ch.children[0])
+        elif ch.data == "ai_monitor":
+            mon: dict[str, Any] = {}
+            for item in ch.children:
+                if isinstance(item, Tree) and item.data == "mi_threshold":
+                    mon["threshold"] = float(_tok(item, 0))
+                elif isinstance(item, Tree) and item.data == "mi_window":
+                    mon["window"] = _extract_duration(item.children[0])
+            rec["acceptance_monitor"] = mon
+    ir["arbiter"] = rec
+
+
 # ── Validator ─────────────────────────────────────────────────────────────────
 
 class PiValidator:
 
     def __init__(self, tree: Tree):
-        self.tree = tree
+        self.tree   = tree
         self.errors: list[str] = []
-        self.ir: dict[str, Any] = {
-            "domain":         None,
-            "audit_interval": None,
-            "tiebreaker":     "timestamp_asc",
-            "entities":       {},   # entity_name -> {state_name: type_str}
-            "constraints":    {},   # constraint_name -> constraint_ir
-            "maps":           {},   # "Entity.state" -> [mapped_value, ...]
-            "enforce":        {},   # entity_name -> [constraint_name, ...]
-            "arbiter":        None, # arbiter_ir or None
-        }
+        self.ir: dict[str, Any] = _empty_ir()
 
     def validate(self) -> tuple[bool, list[str], dict[str, Any]]:
-        self._extract_domain()
-        self._extract_entities()
-        self._extract_constraints()
-        self._extract_maps()
-        self._extract_enforce()
-        self._extract_arbiter()
+        sections = [c for c in self.tree.children
+                    if isinstance(c, Tree) and c.data == "domain_section"]
+        if not sections:
+            self.errors.append("Missing required 'domain' declaration.")
+            return False, self.errors, self.ir
 
-        self._check_audit_interval_exactly_once()
+        domain_irs: dict[str, dict] = {}
+        domain_order: list[str] = []
+
+        for section in sections:
+            d_ir = self._build_domain_ir(section)
+            name = d_ir["domain"]
+            if name in domain_irs:
+                self.errors.append(f"Duplicate domain name '{name}'.")
+            else:
+                domain_irs[name] = d_ir
+                domain_order.append(name)
+
+        if not domain_order:
+            return False, self.errors, self.ir
+
+        primary_name = domain_order[-1]
+        self.ir = self._resolve_imports(domain_irs, primary_name)
+
         self._check_entity_state_refs_exist()
         self._check_membership_rules_have_maps()
         self._check_enforce_refs_declared()
 
         return (len(self.errors) == 0), self.errors, self.ir
 
-    # ── Extraction ────────────────────────────────────────────────────────────
+    # ── Per-section build ─────────────────────────────────────────────────────
 
-    def _extract_domain(self):
-        nodes = _subtrees(self.tree, "domain_decl")
-        if not nodes:
-            self.errors.append("Missing required 'domain' declaration.")
-            return
-        node = nodes[0]
-        self.ir["domain"] = _tok(node, 0)
+    def _build_domain_ir(self, section: Tree) -> dict[str, Any]:
+        ir = _empty_ir()
+        ir["_import_refs"] = []  # [(src_domain, constraint_name), ...]
 
-        for item in node.children:
-            if not isinstance(item, Tree) or item.data != "domain_item":
+        domain_node = section.children[0]
+        ir["domain"] = _tok(domain_node, 0)
+
+        audit_count = 0
+        for item in domain_node.children:
+            if not isinstance(item, Tree):
                 continue
-            ch = item.children[0]
-            if isinstance(ch, Tree) and ch.data == "duration":
-                self.ir["audit_interval"] = _extract_duration(ch)
-            elif isinstance(ch, Tree) and ch.data == "tiebreaker_mode":
-                self.ir["tiebreaker"] = _leaf_value(ch)
-
-    def _extract_entities(self):
-        for node in _subtrees(self.tree, "entity_decl"):
-            name = _tok(node, 0)
-            states: dict[str, str] = {}
-            for ch in node.children:
-                if isinstance(ch, Tree) and ch.data == "state_field":
-                    sname = _tok(ch, 0)
-                    stype_node = ch.children[1]
-                    stype_str = _extract_state_type(stype_node)
-                    states[sname] = stype_str
-            self.ir["entities"][name] = states
-
-    def _extract_constraints(self):
-        for node in _subtrees(self.tree, "constraint_decl"):
-            name = _tok(node, 0)
-            rec: dict[str, Any] = {
-                "priority":     None,
-                "rule":         None,
-                "on_violation": [],
-                "escalation":   [],
-                "decay_check":  None,
-            }
-            for ch in node.children:
-                if not isinstance(ch, Tree):
-                    continue
-                if ch.data == "c_priority":
-                    rec["priority"] = _leaf_value(ch.children[0])
-                elif ch.data == "c_rule":
-                    rec["rule"] = _extract_rule(ch.children[0])
-                elif ch.data == "c_on_violation":
-                    rec["on_violation"] = _extract_violation_action(ch.children[0])
-                elif ch.data == "c_decay_check":
-                    rec["decay_check"] = _extract_duration(ch.children[0])
-                elif ch.data == "c_escalation":
-                    esc_block = ch.children[0]
-                    steps = []
-                    for step in esc_block.children:
-                        if isinstance(step, Tree) and step.data == "escalation_step":
-                            at_n   = float(_tok(step, 0))
-                            action = _leaf_value(step.children[1])
-                            steps.append({"at": at_n, "action": action})
-                    rec["escalation"] = steps
-            self.ir["constraints"][name] = rec
-
-    def _extract_maps(self):
-        for node in _subtrees(self.tree, "map_decl"):
-            target_ref = None
-            maps_to_val = None
-            triggers: list[str] = []
-            label: str | None = None
-
-            for ch in node.children:
-                if not isinstance(ch, Tree):
-                    continue
-                if ch.data == "mi_target":
-                    target_ref = _state_ref_str(ch.children[0])
-                elif ch.data == "mi_maps_to":
-                    maps_to_val = _extract_pi_value(ch.children[0])
-                elif ch.data == "mi_triggers":
-                    tlist = ch.children[0]
-                    for entry in tlist.children:
-                        if isinstance(entry, Tree) and entry.data == "trigger_entry":
-                            triggers.append(str(entry.children[0]).strip('"'))
-                        elif isinstance(entry, Tree) and entry.data == "regex_trigger":
-                            triggers.append(f"regex:{str(entry.children[0]).strip(chr(34))}")
-                elif ch.data == "mi_label":
-                    raw = str(ch.children[0]).strip('"')
-                    if not raw:
-                        self.errors.append(
-                            "Map block label must be a non-empty string."
+            if item.data == "domain_item":
+                ch = item.children[0]
+                if isinstance(ch, Tree) and ch.data == "duration":
+                    ir["audit_interval"] = _extract_duration(ch)
+                    audit_count += 1
+                elif isinstance(ch, Tree) and ch.data == "tiebreaker_mode":
+                    ir["tiebreaker"] = _leaf_value(ch)
+            elif item.data == "di_imports":
+                imports_item_node = item.children[0]
+                for ref in imports_item_node.children:
+                    if isinstance(ref, Tree) and ref.data == "import_ref":
+                        ir["_import_refs"].append(
+                            (str(ref.children[0]), str(ref.children[1]))
                         )
-                    else:
-                        label = raw
 
-            if target_ref is not None:
-                self.ir["maps"].setdefault(target_ref, [])
-                entry: dict = {"maps_to": maps_to_val, "triggers": triggers}
-                if label is not None:
-                    entry["label"] = label
-                self.ir["maps"][target_ref].append(entry)
-
-    def _extract_enforce(self):
-        for node in _subtrees(self.tree, "enforce_decl"):
-            entity_name = None
-            constraint_names: list[str] = []
-            for ch in node.children:
-                if not isinstance(ch, Tree):
-                    continue
-                if ch.data == "ei_entity":
-                    entity_name = str(ch.children[0])
-                elif ch.data == "ei_constraints":
-                    ref_list = ch.children[0]
-                    for tok in ref_list.children:
-                        if isinstance(tok, Token):
-                            constraint_names.append(str(tok))
-            if entity_name:
-                self.ir["enforce"][entity_name] = constraint_names
-
-    def _extract_arbiter(self):
-        for node in _subtrees(self.tree, "arbiter_decl"):
-            name = _tok(node, 0)
-            rec: dict[str, Any] = {
-                "name":                  name,
-                "acceptable_evolution":  [],
-                "never_acceptable":      [],
-                "requires_human_review": [],
-                "acceptance_monitor":    None,
-            }
-            for ch in node.children:
-                if not isinstance(ch, Tree):
-                    continue
-                if ch.data == "ai_acceptable":
-                    rec["acceptable_evolution"] = _str_list(ch.children[0])
-                elif ch.data == "ai_never":
-                    rec["never_acceptable"] = _str_list(ch.children[0])
-                elif ch.data == "ai_human_review":
-                    rec["requires_human_review"] = _str_list(ch.children[0])
-                elif ch.data == "ai_monitor":
-                    mon: dict[str, Any] = {}
-                    for item in ch.children:
-                        if isinstance(item, Tree) and item.data == "mi_threshold":
-                            mon["threshold"] = float(_tok(item, 0))
-                        elif isinstance(item, Tree) and item.data == "mi_window":
-                            mon["window"] = _extract_duration(item.children[0])
-                    rec["acceptance_monitor"] = mon
-            self.ir["arbiter"] = rec
-            break
-
-    # ── Semantic checks ───────────────────────────────────────────────────────
-
-    def _check_audit_interval_exactly_once(self):
-        count = sum(
-            1 for item in _subtrees(self.tree, "domain_item")
-            if item.children and isinstance(item.children[0], Tree)
-            and item.children[0].data == "duration"
-        )
-        if count == 0:
+        if audit_count == 0:
             self.errors.append(
                 "audit_interval is required and must appear exactly once in the domain block."
             )
-        elif count > 1:
+        elif audit_count > 1:
             self.errors.append(
-                f"audit_interval must appear exactly once (found {count})."
+                f"audit_interval must appear exactly once (found {audit_count})."
             )
 
-    def _check_entity_state_refs_exist(self):
-        for node in _subtrees(self.tree, "state_ref"):
-            entity = str(node.children[0])
-            state  = str(node.children[1])
-            ref    = f"{entity}.{state}"
-            if entity not in self.ir["entities"]:
+        for stmt in section.children[1:]:
+            if not isinstance(stmt, Tree) or stmt.data != "top_level_stmt":
+                continue
+            decl = stmt.children[0]
+            if not isinstance(decl, Tree):
+                continue
+            if decl.data == "entity_decl":
+                _process_entity(decl, ir)
+            elif decl.data == "constraint_decl":
+                _process_constraint(decl, ir)
+            elif decl.data == "map_decl":
+                _process_map(decl, ir, self.errors)
+            elif decl.data == "enforce_decl":
+                _process_enforce(decl, ir)
+            elif decl.data == "arbiter_decl":
+                _process_arbiter(decl, ir)
+
+        return ir
+
+    # ── Import resolution ─────────────────────────────────────────────────────
+
+    def _resolve_imports(self, domain_irs: dict, primary_name: str) -> dict:
+        primary = domain_irs[primary_name]
+        import_refs = primary.pop("_import_refs", [])
+
+        # Clear _import_refs from library domains too
+        for d in domain_irs.values():
+            d.pop("_import_refs", None)
+
+        # Detect circular imports: primary imports from source that imports back
+        for src_domain, _ in import_refs:
+            if src_domain not in domain_irs:
+                continue
+            src_refs = domain_irs[src_domain].get("_import_refs_snapshot", [])
+            for back_domain, _ in src_refs:
+                if back_domain == primary_name:
+                    self.errors.append(
+                        f"Circular import: '{primary_name}' ↔ '{src_domain}'."
+                    )
+
+        for src_domain, constraint_name in import_refs:
+            if src_domain not in domain_irs:
                 self.errors.append(
-                    f"Reference to undeclared entity '{entity}' in '{ref}'."
+                    f"Import '{src_domain}.{constraint_name}': "
+                    f"domain '{src_domain}' not found in this file."
                 )
-            elif state not in self.ir["entities"][entity]:
+                continue
+
+            src_ir = domain_irs[src_domain]
+
+            if constraint_name not in src_ir["constraints"]:
                 self.errors.append(
-                    f"Entity '{entity}' has no state '{state}' (referenced in '{ref}')."
+                    f"Import '{src_domain}.{constraint_name}': constraint "
+                    f"'{constraint_name}' not found in domain '{src_domain}'."
+                )
+                continue
+
+            if constraint_name in primary["constraints"]:
+                self.errors.append(
+                    f"Import '{src_domain}.{constraint_name}': domain "
+                    f"'{primary_name}' already declares a constraint named "
+                    f"'{constraint_name}'. Remove the local declaration or rename it."
+                )
+                continue
+
+            src_constraint = src_ir["constraints"][constraint_name]
+            rule = src_constraint.get("rule") or {}
+            ref  = rule.get("ref", "")
+            if ref:
+                entity_name, field_name = ref.split(".", 1)
+                if entity_name not in primary["entities"]:
+                    self.errors.append(
+                        f"Import '{src_domain}.{constraint_name}' targets '{ref}' "
+                        f"but entity '{entity_name}' is not declared in domain "
+                        f"'{primary_name}'."
+                    )
+                    continue
+                if field_name not in primary["entities"][entity_name]:
+                    self.errors.append(
+                        f"Import '{src_domain}.{constraint_name}' targets '{ref}' "
+                        f"but entity '{entity_name}' has no field '{field_name}' "
+                        f"in domain '{primary_name}'."
+                    )
+                    continue
+
+            entry = copy.deepcopy(src_constraint)
+            entry["imported_from"] = src_domain
+            primary["constraints"][constraint_name] = entry
+
+        return primary
+
+    # ── Semantic checks (operate on self.ir after merge) ─────────────────────
+
+    def _check_entity_state_refs_exist(self):
+        entities = self.ir["entities"]
+        for cname, cdata in self.ir["constraints"].items():
+            rule = cdata.get("rule") or {}
+            ref  = rule.get("ref")
+            if not ref:
+                continue
+            entity_name, field_name = ref.split(".", 1)
+            if entity_name not in entities:
+                self.errors.append(
+                    f"Reference to undeclared entity '{entity_name}' in '{ref}'."
+                )
+            elif field_name not in entities[entity_name]:
+                self.errors.append(
+                    f"Entity '{entity_name}' has no state '{field_name}' "
+                    f"(referenced in '{ref}')."
+                )
+        for map_ref in self.ir["maps"]:
+            entity_name, field_name = map_ref.split(".", 1)
+            if entity_name not in entities:
+                self.errors.append(
+                    f"Reference to undeclared entity '{entity_name}' in map "
+                    f"target '{map_ref}'."
+                )
+            elif field_name not in entities[entity_name]:
+                self.errors.append(
+                    f"Entity '{entity_name}' has no state '{field_name}' "
+                    f"(referenced in map target '{map_ref}')."
                 )
 
     def _check_membership_rules_have_maps(self):

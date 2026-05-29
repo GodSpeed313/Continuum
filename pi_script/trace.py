@@ -101,7 +101,8 @@ def render_trace(trace: dict[str, Any]) -> str:
     constraints = trace.get("constraints", [])
     for i, c in enumerate(constraints):
         prefix = "├──" if i < len(constraints) - 1 else "└──"
-        lines.append(f"{prefix} CONSTRAINT: {c['name']} [priority: {c.get('priority', 'unknown')}]")
+        imported_tag = f" (imported from {c['imported_from']})" if c.get("imported_from") else ""
+        lines.append(f"{prefix} CONSTRAINT: {c['name']} [priority: {c.get('priority', 'unknown')}]{imported_tag}")
         lines.append(f"│   ├── Rule kind  : {c['rule_kind']}")
         lines.append(f"│   ├── Evaluation : {c['evaluation']}")
         if c.get("map_match"):
@@ -209,7 +210,7 @@ def human_text(data: dict[str, Any]) -> str:
 
 def _build_constraint_block(c: dict[str, Any]) -> dict[str, Any]:
     """Normalise a constraint evaluation entry for the trace dict."""
-    return {
+    block: dict[str, Any] = {
         "name":       c["name"],
         "priority":   c.get("priority", "unknown"),
         "status":     c["status"],
@@ -218,6 +219,9 @@ def _build_constraint_block(c: dict[str, Any]) -> dict[str, Any]:
         "map_match":  c.get("map_match"),
         "action":     c.get("action"),
     }
+    if c.get("imported_from"):
+        block["imported_from"] = c["imported_from"]
+    return block
 
 
 def _single_violation_text(
