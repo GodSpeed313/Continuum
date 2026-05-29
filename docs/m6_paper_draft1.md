@@ -210,10 +210,12 @@ a constraint design error that no unit test caught. SATISFIED traces confirm com
 VIOLATED traces reveal intent that was imprecisely specified. Both are valuable. Only
 one is uncomfortable.
 
-**ConsistencyGuard is dormant in M5.** The contradiction detection constraint satisfies
-trivially because `response_history` is not logged in M5 — the manual logging overhead
-at 90 seconds per session is too high for daily runs. M6 adds structured history
-logging and activates ConsistencyGuard with intent.
+**ConsistencyGuard activated in M6.** In M5, the contradiction detection constraint
+satisfied trivially because `response_history` was not logged — manual logging overhead
+was too high for daily runs. M6 added structured history logging to `log_session.py`
+and produced the first `contradiction_rule` violation on record: two responses logged
+on the same topic, the second containing a mapped trigger keyword, fired ConsistencyGuard
+at high priority with action `flag + escalate`. Trace saved to `m5/traces/2026-05-29_163949.txt`.
 
 ---
 
@@ -273,13 +275,17 @@ immediate practical application.
 
 M6 activates what M5 left dormant and opens what M5 gated.
 
-**`response_history` reintroduced with intent.** Defined in the spec (`sequence(text)`)
-but excluded from the M5 state snapshot due to logging overhead. M6 adds structured
-history logging so ConsistencyGuard has real input to evaluate.
+**`response_history` logging shipped.** Defined in the spec (`sequence(text)`) but
+excluded from the M5 state snapshot due to logging overhead. `log_session.py` now
+accepts `--response TEXT` to append structured entries to `response_history` in
+`m5/state.json` before resolving. History persists across sessions. `--clear-history`
+resets it for a clean run.
 
-**ConsistencyGuard activation.** With `response_history` populated, contradiction
-detection becomes a live constraint. M6 will produce the first `contradiction_rule`
-violations in the Continuum dogfood.
+**ConsistencyGuard activated.** With `response_history` populated, contradiction
+detection is now a live constraint. The first `contradiction_rule` violation is on
+record: `m5/traces/2026-05-29_163949.txt`. Two responses on the same topic; the
+second containing trigger keyword `constraint` against a prior response —
+ConsistencyGuard fired at high priority, action `flag + escalate`.
 
 **Rift v0.1 shipped.** The Rift Intent Layer is complete — grammar (`rift/rift_v01.lark`),
 parser, semantic validator, and compiler. The compiler takes a validated Rift IR and emits
