@@ -134,6 +134,9 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
                 cname, rule, rule_kind, priority, action_str, entity_state
             )
 
+        imported_from = c_ir.get("imported_from")
+        if imported_from:
+            result["imported_from"] = imported_from
         evaluated.append(result)
 
     # ── Step 4: Collect violations, apply priority resolution (Q1) ───────────

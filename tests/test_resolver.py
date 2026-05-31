@@ -618,5 +618,63 @@ class TestBidirectionalMaps(unittest.TestCase):
         self.assertIn("safe_mode", evaluation)
 
 
+class TestCrossDomainImport(unittest.TestCase):
+    """Ruling 9.5 — imported constraints annotated in trace."""
+
+    def _ir_with_imported_constraint(self):
+        return _base_ir(
+            constraints={
+                "ConfidenceFloor": {
+                    "priority":      "critical",
+                    "rule":          {"kind": "range_rule", "ref": "TestAgent.confidence_score",
+                                      "lo": 0.2, "hi": 1.0},
+                    "on_violation":  ["freeze", "escalate"],
+                    "escalation":    [],
+                    "decay_check":   None,
+                    "imported_from": "safety_core",
+                }
+            },
+            enforce_list=["ConfidenceFloor"],
+        )
+
+    def test_imported_from_present_in_trace_dict(self):
+        ir = self._ir_with_imported_constraint()
+        state = _base_state({"confidence_score": 0.85})
+        trace, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(trace["constraints"][0]["imported_from"], "safety_core")
+
+    def test_imported_from_annotates_rendered_trace(self):
+        ir = self._ir_with_imported_constraint()
+        state = _base_state({"confidence_score": 0.85})
+        _, rendered, _ = resolve(ir, state)
+        self.assertIn("imported from safety_core", rendered)
+
+    def test_native_constraint_has_no_imported_from_in_trace(self):
+        ir = _base_ir(
+            constraints={
+                "ConfidenceFloor": {
+                    "priority":     "critical",
+                    "rule":         {"kind": "range_rule", "ref": "TestAgent.confidence_score",
+                                     "lo": 0.2, "hi": 1.0},
+                    "on_violation": ["freeze", "escalate"],
+                    "escalation":   [],
+                    "decay_check":  None,
+                }
+            },
+            enforce_list=["ConfidenceFloor"],
+        )
+        state = _base_state({"confidence_score": 0.85})
+        trace, rendered, _ = resolve(ir, state)
+        self.assertIsNone(trace["constraints"][0].get("imported_from"))
+        self.assertNotIn("imported from", rendered)
+
+    def test_imported_constraint_violation_still_fires(self):
+        ir = self._ir_with_imported_constraint()
+        state = _base_state({"confidence_score": 0.10})
+        _, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

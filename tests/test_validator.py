@@ -214,3 +214,253 @@ class TestBidirectionalMaps:
         _, _, ir = _validate(_MAP_WITHOUT_LABEL)
         entries = ir["maps"]["Agent.current_mode"]
         assert "label" not in entries[0]
+
+
+# ── Ruling 9.5 — Cross-Domain Constraint Inheritance ──────────────────────────
+
+_MULTI_DOMAIN = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+
+entity Agent {
+    confidence_score: range(0.0 .. 1.0)
+}
+
+constraint ConfidenceFloor {
+    priority:     critical
+    rule:         Agent.confidence_score must remain within range(0.2 .. 1.0)
+    on_violation: freeze + escalate
+}
+
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+    imports:        [safety_core.ConfidenceFloor]
+}
+
+entity Agent {
+    confidence_score: range(0.0 .. 1.0)
+    current_mode:     text
+}
+
+constraint ModeCompliance {
+    priority:     high
+    rule:         Agent.current_mode must match mapped_values
+    on_violation: escalate
+}
+
+map NormalMode {
+    target:   Agent.current_mode
+    maps_to:  "normal_mode"
+    triggers: ["normal"]
+}
+
+enforce {
+    entity:      Agent
+    constraints: [ConfidenceFloor, ModeCompliance]
+}
+"""
+
+_SINGLE_DOMAIN = """\
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+}
+
+entity Agent {
+    confidence_score: range(0.0 .. 1.0)
+    current_mode:     text
+}
+
+constraint ConfidenceFloor {
+    priority:     critical
+    rule:         Agent.confidence_score must remain within range(0.2 .. 1.0)
+    on_violation: freeze + escalate
+}
+
+constraint ModeCompliance {
+    priority:     high
+    rule:         Agent.current_mode must match mapped_values
+    on_violation: escalate
+}
+
+map NormalMode {
+    target:   Agent.current_mode
+    maps_to:  "normal_mode"
+    triggers: ["normal"]
+}
+
+enforce {
+    entity:      Agent
+    constraints: [ConfidenceFloor, ModeCompliance]
+}
+"""
+
+
+class TestCrossDomainImport:
+    def test_single_domain_file_unaffected(self):
+        ok, errors, ir = _validate(_SINGLE_DOMAIN)
+        assert ok, errors
+        assert ir["domain"] == "ai_governance"
+        assert "ConfidenceFloor" in ir["constraints"]
+        assert ir["constraints"]["ConfidenceFloor"].get("imported_from") is None
+
+    def test_multi_domain_import_resolves(self):
+        ok, errors, ir = _validate(_MULTI_DOMAIN)
+        assert ok, errors
+
+    def test_primary_domain_is_last(self):
+        _, _, ir = _validate(_MULTI_DOMAIN)
+        assert ir["domain"] == "ai_governance"
+
+    def test_imported_constraint_in_ir(self):
+        _, _, ir = _validate(_MULTI_DOMAIN)
+        assert "ConfidenceFloor" in ir["constraints"]
+
+    def test_imported_constraint_has_imported_from(self):
+        _, _, ir = _validate(_MULTI_DOMAIN)
+        assert ir["constraints"]["ConfidenceFloor"]["imported_from"] == "safety_core"
+
+    def test_native_constraint_has_no_imported_from(self):
+        _, _, ir = _validate(_MULTI_DOMAIN)
+        assert "imported_from" not in ir["constraints"]["ModeCompliance"]
+
+    def test_missing_source_domain_errors(self):
+        source = """\
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+    imports: [nonexistent.ConfidenceFloor]
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("nonexistent" in e for e in errors)
+
+    def test_missing_constraint_in_source_domain_errors(self):
+        source = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+    imports: [safety_core.NonExistentConstraint]
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("NonExistentConstraint" in e for e in errors)
+
+    def test_missing_entity_in_importing_domain_errors(self):
+        source = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity CoreAgent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: CoreAgent.score must remain within range(0.1 .. 1.0)
+    on_violation: flag
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+    imports: [safety_core.ScoreFloor]
+}
+entity DifferentAgent {
+    value: integer
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("CoreAgent" in e for e in errors)
+
+    def test_missing_field_in_importing_domain_errors(self):
+        source = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: flag
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+    imports: [safety_core.ScoreFloor]
+}
+entity Agent {
+    different_field: integer
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("score" in e for e in errors)
+
+    def test_duplicate_constraint_name_errors(self):
+        source = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: flag
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+    imports: [safety_core.ScoreFloor]
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: medium
+    rule: Agent.score must remain within range(0.0 .. 1.0)
+    on_violation: warn
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("ScoreFloor" in e for e in errors)
+
+    def test_duplicate_domain_name_errors(self):
+        source = """\
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+"""
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("ai_governance" in e for e in errors)
