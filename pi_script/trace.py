@@ -66,16 +66,17 @@ def build_trace(data: dict[str, Any]) -> dict[str, Any]:
     timestamp = data.get("timestamp") or _now_iso()
 
     trace = {
-        "timestamp":           timestamp,
-        "domain":              data["domain"],
-        "entity":              _entity_label(data),
-        "trigger_type":        data["trigger_type"],
-        "triggered_by":        data["triggered_by"],
-        "constraints":         [_build_constraint_block(c) for c in data.get("constraints", [])],
-        "conflict_resolution": data.get("conflict_resolution"),
-        "final_action":        data.get("final_action"),
-        "system_state":        data["system_state"],
-        "human_text":          human_text(data),
+        "timestamp":                timestamp,
+        "domain":                   data["domain"],
+        "entity":                   _entity_label(data),
+        "trigger_type":             data["trigger_type"],
+        "triggered_by":             data["triggered_by"],
+        "constraints":              [_build_constraint_block(c) for c in data.get("constraints", [])],
+        "conflict_resolution":      data.get("conflict_resolution"),
+        "final_action":             data.get("final_action"),
+        "system_state":             data["system_state"],
+        "human_text":               human_text(data),
+        "updated_violation_counts": data.get("updated_violation_counts", {}),
     }
     return trace
 
@@ -111,6 +112,17 @@ def render_trace(trace: dict[str, Any]) -> str:
         if status == "satisfied":
             lines.append(f"│   └── ✓ SATISFIED — no action")
         else:
+            vc = c.get("violation_count")
+            if vc is not None:
+                if c.get("escalation_fired"):
+                    vc_line = f"{vc} — escalation threshold met → {c.get('action', 'none')}"
+                else:
+                    nxt = c.get("escalation_next")
+                    if nxt:
+                        vc_line = f"{vc} — next escalation: {nxt['action']} at {int(nxt['at'])}"
+                    else:
+                        vc_line = str(vc)
+                lines.append(f"│   ├── Violation count: {vc_line}")
             lines.append(f"│   ├── ✗ VIOLATION DETECTED")
             lines.append(f"│   └── Action     : {c.get('action', 'none')}")
         lines.append("│")
@@ -221,6 +233,12 @@ def _build_constraint_block(c: dict[str, Any]) -> dict[str, Any]:
     }
     if c.get("imported_from"):
         block["imported_from"] = c["imported_from"]
+    if c.get("violation_count") is not None:
+        block["violation_count"] = c["violation_count"]
+    if c.get("escalation_fired"):
+        block["escalation_fired"] = True
+    if c.get("escalation_next") is not None:
+        block["escalation_next"] = c["escalation_next"]
     return block
 
 
