@@ -220,7 +220,7 @@ def _process_entity(node: Tree, ir: dict) -> None:
     ir["entities"][name] = states
 
 
-def _process_constraint(node: Tree, ir: dict) -> None:
+def _process_constraint(node: Tree, ir: dict, errors: list) -> None:
     name = _tok(node, 0)
     rec: dict[str, Any] = {
         "priority":     None,
@@ -244,8 +244,15 @@ def _process_constraint(node: Tree, ir: dict) -> None:
             steps = []
             for step in ch.children[0].children:
                 if isinstance(step, Tree) and step.data == "escalation_step":
+                    raw = _tok(step, 0)
+                    at_val = float(raw)
+                    if at_val != int(at_val) or at_val < 1:
+                        errors.append(
+                            f"Constraint '{name}': escalation threshold must be "
+                            f"a positive integer (got {raw})."
+                        )
                     steps.append({
-                        "at":     float(_tok(step, 0)),
+                        "at":     at_val,
                         "action": _leaf_value(step.children[1]),
                     })
             rec["escalation"] = steps
@@ -416,7 +423,7 @@ class PiValidator:
             if decl.data == "entity_decl":
                 _process_entity(decl, ir)
             elif decl.data == "constraint_decl":
-                _process_constraint(decl, ir)
+                _process_constraint(decl, ir, self.errors)
             elif decl.data == "map_decl":
                 _process_map(decl, ir, self.errors)
             elif decl.data == "enforce_decl":

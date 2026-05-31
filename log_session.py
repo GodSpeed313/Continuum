@@ -59,6 +59,14 @@ def main() -> None:
         action="store_true",
         help="Clear response_history from state.json and exit",
     )
+    parser.add_argument(
+        "--reset-violations",
+        metavar="CONSTRAINT",
+        nargs="?",
+        const="__all__",
+        help="Reset violation counter(s) in state.json and exit. "
+             "With no argument resets all counters; with a name resets only that constraint.",
+    )
     args = parser.parse_args()
 
     state = _load(M5 / "state.json")
@@ -69,6 +77,17 @@ def main() -> None:
         print("[log_session] response_history cleared.")
         return
 
+    if args.reset_violations is not None:
+        counts = state.setdefault("violation_counts", {})
+        if args.reset_violations == "__all__":
+            state["violation_counts"] = {}
+            print("[log_session] All violation counters reset.")
+        else:
+            counts.pop(args.reset_violations, None)
+            print(f"[log_session] Violation counter reset: {args.reset_violations}")
+        _save_state(state)
+        return
+
     if args.response:
         _append_response(state, args.response, args.state_ref)
         _save_state(state)
@@ -76,8 +95,15 @@ def main() -> None:
         print(f"[log_session] Response logged (history depth: {len(history)})")
 
     ir = _load(M5 / "ir.json")
-    _trace, rendered, exit_code = resolve(ir, state)
+    trace, rendered, exit_code = resolve(ir, state)
     print(rendered)
+
+    # Persist any violation count increments back to state
+    new_counts = trace.get("updated_violation_counts", {})
+    if new_counts:
+        counts = state.setdefault("violation_counts", {})
+        counts.update(new_counts)
+        _save_state(state)
 
     if exit_code == 1:
         ts   = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")

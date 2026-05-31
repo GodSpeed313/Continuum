@@ -676,5 +676,205 @@ class TestCrossDomainImport(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
+class TestViolationCounters(unittest.TestCase):
+
+    def _escalating_ir(self, steps=None):
+        if steps is None:
+            steps = [{"at": 3.0, "action": "escalate"}, {"at": 10.0, "action": "freeze"}]
+        return _base_ir(
+            constraints={
+                "ConfidenceFloor": {
+                    "priority":     "critical",
+                    "rule":         {"kind": "range_rule",
+                                     "ref": "TestAgent.confidence_score",
+                                     "lo": 0.2, "hi": 1.0},
+                    "on_violation": ["warn"],
+                    "escalation":   steps,
+                    "decay_check":  None,
+                }
+            },
+            enforce_list=["ConfidenceFloor"],
+        )
+
+    def _violating_state(self, counts=None):
+        s = _base_state({"confidence_score": 0.10})
+        if counts:
+            s["violation_counts"] = counts
+        return s
+
+    def _clean_state(self, counts=None):
+        s = _base_state({"confidence_score": 0.85})
+        if counts:
+            s["violation_counts"] = counts
+        return s
+
+    # ── Counter increments ─────────────────────────────────────────────────
+
+    def test_counter_increments_on_first_violation(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state())
+        self.assertEqual(trace["updated_violation_counts"]["ConfidenceFloor"], 1)
+
+    def test_counter_increments_from_existing_value(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 5}))
+        self.assertEqual(trace["updated_violation_counts"]["ConfidenceFloor"], 6)
+
+    def test_counter_not_incremented_on_satisfied(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._clean_state())
+        self.assertNotIn("ConfidenceFloor", trace["updated_violation_counts"])
+
+    def test_updated_counts_empty_on_clean_run(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._clean_state())
+        self.assertEqual(trace["updated_violation_counts"], {})
+
+    # ── Escalation fires ───────────────────────────────────────────────────
+
+    def test_base_action_used_below_threshold(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 1}))
+        c = trace["constraints"][0]
+        self.assertEqual(c["action"], "warn")
+        self.assertFalse(c.get("escalation_fired", False))
+
+    def test_escalation_fires_at_threshold(self):
+        ir = self._escalating_ir()
+        # count was 2, will become 3 — threshold met
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        c = trace["constraints"][0]
+        self.assertEqual(c["action"], "escalate")
+        self.assertTrue(c["escalation_fired"])
+
+    def test_escalation_replaces_on_violation(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 9}))
+        c = trace["constraints"][0]
+        self.assertEqual(c["action"], "freeze")
+        self.assertTrue(c["escalation_fired"])
+
+    def test_highest_threshold_wins(self):
+        # count becomes 11 — both at:3 and at:10 are met; at:10 wins
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 10}))
+        c = trace["constraints"][0]
+        self.assertEqual(c["action"], "freeze")
+
+    def test_no_escalation_block_uses_base_action(self):
+        ir = _base_ir(
+            constraints={
+                "ConfidenceFloor": {
+                    "priority":     "critical",
+                    "rule":         {"kind": "range_rule",
+                                     "ref": "TestAgent.confidence_score",
+                                     "lo": 0.2, "hi": 1.0},
+                    "on_violation": ["warn"],
+                    "escalation":   [],
+                    "decay_check":  None,
+                }
+            },
+            enforce_list=["ConfidenceFloor"],
+        )
+        trace, _, _ = resolve(ir, self._violating_state())
+        c = trace["constraints"][0]
+        self.assertEqual(c["action"], "warn")
+        self.assertFalse(c.get("escalation_fired", False))
+
+    # ── violation_count in result ──────────────────────────────────────────
+
+    def test_violation_count_present_on_violated_constraint(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 4}))
+        c = trace["constraints"][0]
+        self.assertEqual(c["violation_count"], 5)
+
+    def test_violation_count_absent_on_satisfied_constraint(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._clean_state())
+        c = trace["constraints"][0]
+        self.assertNotIn("violation_count", c)
+
+    def test_escalation_next_shown_below_threshold(self):
+        ir = self._escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 1}))
+        c = trace["constraints"][0]
+        nxt = c.get("escalation_next")
+        self.assertIsNotNone(nxt)
+        self.assertEqual(int(nxt["at"]), 3)
+        self.assertEqual(nxt["action"], "escalate")
+
+    # ── Trace rendering ────────────────────────────────────────────────────
+
+    def test_violation_count_line_in_trace_with_escalation_fired(self):
+        ir = self._escalating_ir()
+        _, rendered, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertIn("Violation count", rendered)
+        self.assertIn("escalation threshold met", rendered)
+        self.assertIn("freeze" if False else "escalate", rendered)
+
+    def test_violation_count_line_shows_next_escalation(self):
+        ir = self._escalating_ir()
+        _, rendered, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 0}))
+        self.assertIn("Violation count", rendered)
+        self.assertIn("next escalation", rendered)
+
+    def test_no_violation_count_line_when_satisfied(self):
+        ir = self._escalating_ir()
+        _, rendered, _ = resolve(ir, self._clean_state())
+        self.assertNotIn("Violation count", rendered)
+
+
+class TestEscalationValidation(unittest.TestCase):
+
+    def _validate(self, source: str):
+        from pi_script.parser import parse_string
+        from pi_script.validator import PiValidator
+        tree, err = parse_string(source, source_name="<test>")
+        assert err is None, f"Parse error: {err}"
+        return PiValidator(tree).validate()
+
+    def _source_with_threshold(self, threshold: str) -> str:
+        return f"""\
+domain test_domain {{
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}}
+entity Agent {{
+    score: range(0.0 .. 1.0)
+}}
+constraint ScoreFloor {{
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: warn
+    escalation {{
+        at {threshold} violations: escalate
+    }}
+}}
+enforce {{
+    entity: Agent
+    constraints: [ScoreFloor]
+}}
+"""
+
+    def test_integer_threshold_valid(self):
+        ok, errors, _ = self._validate(self._source_with_threshold("3"))
+        assert ok, errors
+
+    def test_float_threshold_rejected(self):
+        ok, errors, _ = self._validate(self._source_with_threshold("1.5"))
+        assert not ok
+        assert any("1.5" in e for e in errors)
+
+    def test_zero_threshold_rejected(self):
+        ok, errors, _ = self._validate(self._source_with_threshold("0"))
+        assert not ok
+        assert any("positive integer" in e for e in errors)
+
+    def test_large_integer_threshold_valid(self):
+        ok, errors, _ = self._validate(self._source_with_threshold("100"))
+        assert ok, errors
+
+
 if __name__ == "__main__":
     unittest.main()

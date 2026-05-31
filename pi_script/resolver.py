@@ -81,6 +81,7 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
     entity_name = state.get("entity", "")
     entity_state = state.get("entity_state", {})
     response_history = state.get("response_history", [])
+    violation_counts: dict[str, int] = dict(state.get("violation_counts") or {})
     session_id = entity_state.get("session_id")
 
     # ── Step 2: Look up enforce block ─────────────────────────────────────────
@@ -97,6 +98,7 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
 
     # ── Step 3: Evaluate each constraint ─────────────────────────────────────
     evaluated: list[dict[str, Any]] = []
+    updated_violation_counts: dict[str, int] = {}
 
     for cname in constraint_names:
         if cname not in constraints_ir:
@@ -134,6 +136,18 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
                 cname, rule, rule_kind, priority, action_str, entity_state
             )
 
+        if result["status"] == "violated":
+            new_count = violation_counts.get(cname, 0) + 1
+            updated_violation_counts[cname] = new_count
+            escalation_action = _apply_escalation(c_ir.get("escalation", []), new_count)
+            if escalation_action is not None:
+                result["action"] = escalation_action
+                result["violation_count"] = new_count
+                result["escalation_fired"] = True
+            else:
+                result["violation_count"] = new_count
+                result["escalation_next"] = _next_escalation(c_ir.get("escalation", []), new_count)
+
         imported_from = c_ir.get("imported_from")
         if imported_from:
             result["imported_from"] = imported_from
@@ -154,16 +168,17 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
 
     # ── Step 6: Build and render trace ────────────────────────────────────────
     trace_data = {
-        "domain":              ir.get("domain", "unknown"),
-        "entity":              entity_name,
-        "session_id":          session_id,
-        "trigger_type":        trigger_type,
-        "triggered_by":        triggered_by,
-        "timestamp":           _now_iso(),
-        "constraints":         evaluated,
-        "conflict_resolution": conflict_resolution,
-        "final_action":        final_action,
-        "system_state":        system_state,
+        "domain":                   ir.get("domain", "unknown"),
+        "entity":                   entity_name,
+        "session_id":               session_id,
+        "trigger_type":             trigger_type,
+        "triggered_by":             triggered_by,
+        "timestamp":                _now_iso(),
+        "constraints":              evaluated,
+        "conflict_resolution":      conflict_resolution,
+        "final_action":             final_action,
+        "system_state":             system_state,
+        "updated_violation_counts": updated_violation_counts,
     }
 
     trace = build_trace(trace_data)
@@ -171,6 +186,24 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
 
     exit_code = 1 if violations else 0
     return trace, rendered, exit_code
+
+
+# ── Escalation helpers ───────────────────────────────────────────────────────
+
+def _apply_escalation(steps: list, count: int) -> str | None:
+    """Return the action for the highest-threshold step that count has met, or None."""
+    matched = [s for s in steps if int(s["at"]) <= count]
+    if not matched:
+        return None
+    return max(matched, key=lambda s: s["at"])["action"]
+
+
+def _next_escalation(steps: list, count: int) -> dict | None:
+    """Return the lowest step not yet met, or None if all thresholds passed."""
+    pending = [s for s in steps if int(s["at"]) > count]
+    if not pending:
+        return None
+    return min(pending, key=lambda s: s["at"])
 
 
 # ── Rule evaluators ──────────────────────────────────────────────────────────
