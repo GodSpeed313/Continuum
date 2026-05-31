@@ -591,6 +591,147 @@ enforce {
 """
 
 
+# ── Ruling 9.8 fixtures ───────────────────────────────────────────────────────
+
+_SEMANTIC_MAP_VALID = """\
+domain primary {
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}
+entity Session {
+    topic: text
+}
+map TopicMap {
+    target:               Session.topic
+    maps_to:              "active"
+    triggers:             ["running", "started"]
+    match_mode:           semantic
+    similarity_threshold: 0.85
+}
+constraint TopicCompliance {
+    priority:     medium
+    rule:         Session.topic must match mapped_values
+    on_violation: flag
+}
+enforce {
+    entity:      Session
+    constraints: [TopicCompliance]
+}
+arbiter Gov {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+_SEMANTIC_MAP_NO_THRESHOLD = """\
+domain primary {
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}
+entity Session {
+    topic: text
+}
+map TopicMap {
+    target:     Session.topic
+    maps_to:    "active"
+    triggers:   ["running"]
+    match_mode: semantic
+}
+constraint TopicCompliance {
+    priority:     medium
+    rule:         Session.topic must match mapped_values
+    on_violation: flag
+}
+enforce {
+    entity:      Session
+    constraints: [TopicCompliance]
+}
+arbiter Gov {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+_THRESHOLD_WITHOUT_SEMANTIC = """\
+domain primary {
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}
+entity Session {
+    topic: text
+}
+map TopicMap {
+    target:               Session.topic
+    maps_to:              "active"
+    triggers:             ["running"]
+    similarity_threshold: 0.85
+}
+constraint TopicCompliance {
+    priority:     medium
+    rule:         Session.topic must match mapped_values
+    on_violation: flag
+}
+enforce {
+    entity:      Session
+    constraints: [TopicCompliance]
+}
+arbiter Gov {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+
+class TestSemanticMapValidation:
+
+    def test_valid_semantic_map_ir(self):
+        ok, errors, ir = _validate(_SEMANTIC_MAP_VALID)
+        assert ok, errors
+        entries = ir["maps"]["Session.topic"]
+        assert len(entries) == 1
+        assert entries[0]["match_mode"] == "semantic"
+        assert entries[0]["similarity_threshold"] == 0.85
+
+    def test_semantic_requires_threshold(self):
+        ok, errors, _ = _validate(_SEMANTIC_MAP_NO_THRESHOLD)
+        assert not ok
+        assert any("requires similarity_threshold" in e for e in errors)
+
+    def test_threshold_without_semantic(self):
+        ok, errors, _ = _validate(_THRESHOLD_WITHOUT_SEMANTIC)
+        assert not ok
+        assert any("only valid with match_mode: semantic" in e for e in errors)
+
+    def test_threshold_zero_rejected(self):
+        source = _SEMANTIC_MAP_VALID.replace("0.85", "0.0")
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("(0.0, 1.0]" in e for e in errors)
+
+    def test_threshold_one_accepted(self):
+        source = _SEMANTIC_MAP_VALID.replace("0.85", "1.0")
+        ok, errors, _ = _validate(source)
+        assert ok, errors
+
+    def test_threshold_above_one_rejected(self):
+        source = _SEMANTIC_MAP_VALID.replace("0.85", "1.1")
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("(0.0, 1.0]" in e for e in errors)
+
+    def test_existing_map_unaffected(self):
+        # A plain substring map (no match_mode / similarity_threshold) still validates.
+        ok, errors, ir = _validate(_MINIMAL_WITH_ARBITER)
+        assert ok, errors
+        for ref_entries in ir["maps"].values():
+            for entry in ref_entries:
+                assert "match_mode" not in entry
+                assert "similarity_threshold" not in entry
+
+
 class TestArbiterRequired:
 
     def test_arbiter_present_passes(self):

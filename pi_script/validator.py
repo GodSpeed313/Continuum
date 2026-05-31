@@ -264,6 +264,8 @@ def _process_map(node: Tree, ir: dict, errors: list) -> None:
     maps_to_val = None
     triggers: list[str] = []
     label: str | None = None
+    match_mode_val: str | None = None
+    sim_threshold: float | None = None
 
     for ch in node.children:
         if not isinstance(ch, Tree):
@@ -284,12 +286,42 @@ def _process_map(node: Tree, ir: dict, errors: list) -> None:
                 errors.append("Map block label must be a non-empty string.")
             else:
                 label = raw
+        elif ch.data == "mi_match_mode":
+            match_mode_val = _leaf_value(ch.children[0])
+        elif ch.data == "mi_sim_threshold":
+            raw_val = str(ch.children[0])
+            try:
+                threshold_val = float(raw_val)
+                if threshold_val <= 0.0 or threshold_val > 1.0:
+                    errors.append(
+                        f"Map block similarity_threshold must be in range (0.0, 1.0] "
+                        f"(got {raw_val})."
+                    )
+                else:
+                    sim_threshold = threshold_val
+            except ValueError:
+                errors.append(
+                    f"Map block similarity_threshold must be a number (got {raw_val!r})."
+                )
+
+    if match_mode_val == "semantic" and sim_threshold is None:
+        errors.append(
+            "Map block with match_mode: semantic requires similarity_threshold."
+        )
+    if sim_threshold is not None and match_mode_val != "semantic":
+        errors.append(
+            "Map block similarity_threshold is only valid with match_mode: semantic."
+        )
 
     if target_ref is not None:
         ir["maps"].setdefault(target_ref, [])
         map_entry: dict = {"maps_to": maps_to_val, "triggers": triggers}
         if label is not None:
             map_entry["label"] = label
+        if match_mode_val is not None:
+            map_entry["match_mode"] = match_mode_val
+        if sim_threshold is not None:
+            map_entry["similarity_threshold"] = sim_threshold
         ir["maps"][target_ref].append(map_entry)
 
 
@@ -510,7 +542,7 @@ class PiValidator:
 
     def _check_entity_state_refs_exist(self):
         entities = self.ir["entities"]
-        for cname, cdata in self.ir["constraints"].items():
+        for _, cdata in self.ir["constraints"].items():
             rule = cdata.get("rule") or {}
             ref  = rule.get("ref")
             if not ref:

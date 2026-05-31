@@ -44,6 +44,53 @@ from typing import Any
 
 from pi_script.trace import build_trace, render_trace
 
+# ── Semantic matching globals (Ruling 9.8) ───────────────────────────────────
+
+_ST_MODEL = None
+_ST_AVAILABLE: bool | None = None
+
+
+def _get_st_model():
+    global _ST_MODEL, _ST_AVAILABLE
+    if _ST_AVAILABLE is None:
+        try:
+            from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+            _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+            _ST_AVAILABLE = True
+        except Exception:  # noqa: BLE001
+            _ST_AVAILABLE = False
+    return _ST_MODEL if _ST_AVAILABLE else None
+
+
+def _semantic_match(
+    text: str, triggers: list[str], threshold: float
+) -> tuple[bool, str | None, float | None, bool]:
+    """
+    Check if text is semantically similar to any trigger using vector embeddings.
+
+    Returns (matched, best_trigger, score, degraded).
+    degraded=True when the embedding model is unavailable; caller must fall back
+    to substring matching and record the degradation in the trace.
+    """
+    if not triggers:
+        return False, None, None, False
+
+    model = _get_st_model()
+    if model is None:
+        return False, None, None, True
+
+    try:
+        all_texts = [text] + triggers
+        embeddings = model.encode(all_texts, normalize_embeddings=True)
+        text_emb = embeddings[0:1]
+        trigger_embs = embeddings[1:]
+        scores = (text_emb @ trigger_embs.T)[0].tolist()
+        best_idx = max(range(len(scores)), key=lambda i: scores[i])
+        best_score = round(float(scores[best_idx]), 4)
+        return best_score >= threshold, triggers[best_idx], best_score, False
+    except Exception:  # noqa: BLE001
+        return False, None, None, True
+
 
 # ── Violation action restrictiveness order (Q1 resolution) ──────────────────
 _ACTION_RANK: dict[str, int] = {
@@ -372,25 +419,19 @@ def _eval_membership(name, rule, priority, action, entity_state, maps_ir) -> dic
 
 
 def _eval_contradiction(
-    name, rule, priority, action, response_history, maps_ir
+    name, _rule, priority, action, response_history, maps_ir
 ) -> dict:
     """
     Form 5: if new_response contradicts prior_response(same_topic)
     topic key = state_ref (Q2 resolution)
     contradiction detection = map trigger match on new response text
+    Ruling 9.8: maps with match_mode: semantic use vector similarity instead of substring.
     """
     if not response_history:
         return _constraint_result(
             name, priority, "satisfied", "contradiction_rule",
             "no response history to evaluate",
         )
-
-    contradiction_triggers: list[str] = []
-    for map_entries in maps_ir.values():
-        for entry in map_entries:
-            for t in entry.get("triggers", []):
-                if not t.startswith("regex:"):
-                    contradiction_triggers.append(t.lower())
 
     new_entry = response_history[-1]
     new_text = new_entry.get("text", "").lower()
@@ -407,9 +448,43 @@ def _eval_contradiction(
             f"no prior responses on topic '{new_ref}' within window",
         )
 
-    matched_trigger = next(
-        (t for t in contradiction_triggers if t and t in new_text), None
-    )
+    matched_trigger: str | None = None
+    semantic_match_info: dict | None = None
+    semantic_degraded = False
+
+    for map_entries in maps_ir.values():
+        if matched_trigger:
+            break
+        for entry in map_entries:
+            if matched_trigger:
+                break
+            mode = entry.get("match_mode", "substring")
+            triggers = [
+                t.lower() for t in entry.get("triggers", [])
+                if not t.startswith("regex:")
+            ]
+            if not triggers:
+                continue
+
+            if mode == "semantic":
+                threshold = entry.get("similarity_threshold", 0.8)
+                matched, best_trigger, score, degraded = _semantic_match(
+                    new_text, triggers, threshold
+                )
+                if degraded:
+                    semantic_degraded = True
+                    for t in triggers:
+                        if t and t in new_text:
+                            matched_trigger = t
+                            break
+                elif matched:
+                    matched_trigger = best_trigger
+                    semantic_match_info = {"trigger": best_trigger, "score": score}
+            else:
+                for t in triggers:
+                    if t and t in new_text:
+                        matched_trigger = t
+                        break
 
     if matched_trigger:
         prior_text = prior_on_topic[-1].get("text", "")
@@ -420,6 +495,8 @@ def _eval_contradiction(
             action=action,
             map_match=f"'{matched_trigger}' -> contradiction signal",
             prior_response=prior_text,
+            semantic_match=semantic_match_info,
+            semantic_degraded=semantic_degraded,
         )
 
     return _constraint_result(
@@ -474,6 +551,8 @@ def _constraint_result(
     action: str | None = None,
     map_match: str | None = None,
     prior_response: str | None = None,
+    semantic_match: dict | None = None,
+    semantic_degraded: bool = False,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "name":       name,
@@ -486,6 +565,10 @@ def _constraint_result(
     }
     if prior_response is not None:
         result["prior_response"] = prior_response
+    if semantic_match is not None:
+        result["semantic_match"] = semantic_match
+    if semantic_degraded:
+        result["semantic_degraded"] = True
     return result
 
 

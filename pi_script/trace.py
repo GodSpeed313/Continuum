@@ -108,9 +108,14 @@ def render_trace(trace: dict[str, Any]) -> str:
         lines.append(f"│   ├── Evaluation : {c['evaluation']}")
         if c.get("map_match"):
             lines.append(f"│   ├── Map match  : {c['map_match']}")
+        if c.get("semantic_degraded"):
+            lines.append("│   ├── ⚠ DEGRADED    : embedding unavailable, fell back to substring matching")
+        if c.get("semantic_match"):
+            sm = c["semantic_match"]
+            lines.append(f"│   ├── Semantic match : '{sm['trigger']}' ~ input (score: {sm['score']})")
         status = c["status"]
         if status == "satisfied":
-            lines.append(f"│   └── ✓ SATISFIED — no action")
+            lines.append("│   └── ✓ SATISFIED — no action")
         else:
             vc = c.get("violation_count")
             if vc is not None:
@@ -243,6 +248,10 @@ def _build_constraint_block(c: dict[str, Any]) -> dict[str, Any]:
         block["escalation_next"] = c["escalation_next"]
     if c.get("flag_preserved"):
         block["flag_preserved"] = True
+    if c.get("semantic_match") is not None:
+        block["semantic_match"] = c["semantic_match"]
+    if c.get("semantic_degraded"):
+        block["semantic_degraded"] = True
     return block
 
 

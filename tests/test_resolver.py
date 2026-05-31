@@ -10,6 +10,7 @@ Five test classes:
 """
 
 import unittest
+import unittest.mock
 from pi_script.resolver import resolve
 
 
@@ -1012,6 +1013,117 @@ class TestFlagPreservation(unittest.TestCase):
         trace, _, _ = resolve(ir, self._clean_state())
         c = trace["constraints"][0]
         self.assertFalse(c.get("flag_preserved", False))
+
+
+class TestSemanticMapMatching(unittest.TestCase):
+    """Ruling 9.8 — semantic similarity map matching in contradiction detection."""
+
+    def _contradiction_ir(self, match_mode="semantic", threshold=0.8):
+        maps = {
+            "TestAgent.current_mode": [
+                {
+                    "maps_to":  "flagged",
+                    "triggers": ["running", "active"],
+                    "match_mode":           match_mode,
+                    "similarity_threshold": threshold,
+                }
+            ]
+        }
+        constraints = {
+            "TopicCheck": {
+                "priority":     "medium",
+                "rule":         {"kind": "contradiction_rule",
+                                 "ref":  "TestAgent.current_mode"},
+                "on_violation": ["freeze"],
+                "escalation":   [],
+                "decay_check":  None,
+            }
+        }
+        return _base_ir(constraints, ["TopicCheck"], maps=maps)
+
+    def _history_with_prior(self, new_text="the service is running now"):
+        return [
+            {"text": "prior response", "state_ref": "TestAgent.current_mode",
+             "timestamp": "2026-01-01T00:00:00Z"},
+            {"text": new_text,         "state_ref": "TestAgent.current_mode",
+             "timestamp": "2026-01-01T00:01:00Z"},
+        ]
+
+    def _state_with_history(self, new_text="the service is running now"):
+        state = _base_state()
+        state["response_history"] = self._history_with_prior(new_text)
+        return state
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_semantic_match_fires_violation(self, mock_sem):
+        mock_sem.return_value = (True, "running", 0.91, False)
+        ir = self._contradiction_ir()
+        _, _, exit_code = resolve(ir, self._state_with_history())
+        self.assertEqual(exit_code, 1)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_semantic_no_match_satisfied(self, mock_sem):
+        mock_sem.return_value = (False, "running", 0.40, False)
+        ir = self._contradiction_ir()
+        _, _, exit_code = resolve(ir, self._state_with_history("unrelated text"))
+        self.assertEqual(exit_code, 0)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_semantic_result_has_score(self, mock_sem):
+        mock_sem.return_value = (True, "running", 0.91, False)
+        ir = self._contradiction_ir()
+        trace, _, _ = resolve(ir, self._state_with_history())
+        c = trace["constraints"][0]
+        self.assertIsNotNone(c.get("semantic_match"))
+        self.assertEqual(c["semantic_match"]["trigger"], "running")
+        self.assertAlmostEqual(c["semantic_match"]["score"], 0.91)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_trace_shows_semantic_line(self, mock_sem):
+        mock_sem.return_value = (True, "running", 0.91, False)
+        ir = self._contradiction_ir()
+        _, rendered, _ = resolve(ir, self._state_with_history())
+        self.assertIn("Semantic match", rendered)
+        self.assertIn("0.91", rendered)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_degraded_substring_fallback_fires_violation(self, mock_sem):
+        mock_sem.return_value = (False, None, None, True)
+        ir = self._contradiction_ir()
+        # "running" is a substring of the new text
+        _, _, exit_code = resolve(ir, self._state_with_history("the service is running now"))
+        self.assertEqual(exit_code, 1)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_degraded_no_substring_match_satisfied(self, mock_sem):
+        mock_sem.return_value = (False, None, None, True)
+        ir = self._contradiction_ir()
+        _, _, exit_code = resolve(ir, self._state_with_history("completely unrelated"))
+        self.assertEqual(exit_code, 0)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_trace_shows_degraded_line(self, mock_sem):
+        mock_sem.return_value = (False, None, None, True)
+        ir = self._contradiction_ir()
+        _, rendered, _ = resolve(ir, self._state_with_history("the service is running now"))
+        self.assertIn("DEGRADED", rendered)
+
+    def test_non_semantic_map_unaffected(self):
+        # A substring map still resolves without touching _semantic_match
+        ir = self._contradiction_ir(match_mode="substring", threshold=None)
+        # Remove threshold key since it's not valid for substring
+        del ir["maps"]["TestAgent.current_mode"][0]["similarity_threshold"]
+        state = self._state_with_history("the service is running now")
+        _, _, exit_code = resolve(ir, state)
+        self.assertEqual(exit_code, 1)
+
+    @unittest.mock.patch("pi_script.resolver._semantic_match")
+    def test_degraded_result_has_semantic_degraded_flag(self, mock_sem):
+        mock_sem.return_value = (False, None, None, True)
+        ir = self._contradiction_ir()
+        trace, _, _ = resolve(ir, self._state_with_history("the service is running now"))
+        c = trace["constraints"][0]
+        self.assertTrue(c.get("semantic_degraded", False))
 
 
 if __name__ == "__main__":
