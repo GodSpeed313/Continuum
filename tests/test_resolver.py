@@ -855,6 +855,11 @@ enforce {{
     entity: Agent
     constraints: [ScoreFloor]
 }}
+arbiter GovernancePolicy {{
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}}
 """
 
     def test_integer_threshold_valid(self):
@@ -874,6 +879,139 @@ enforce {{
     def test_large_integer_threshold_valid(self):
         ok, errors, _ = self._validate(self._source_with_threshold("100"))
         assert ok, errors
+
+
+# ── Ruling 9.7 — Flag Preservation ───────────────────────────────────────────
+
+def _flag_escalating_ir(on_violation=None, steps=None):
+    """IR with a flag-bearing on_violation and escalation steps."""
+    if on_violation is None:
+        on_violation = ["flag"]
+    if steps is None:
+        steps = [{"at": 3.0, "action": "freeze"}]
+    return _base_ir(
+        constraints={
+            "ConfidenceFloor": {
+                "priority":     "critical",
+                "rule":         {"kind": "range_rule",
+                                 "ref": "TestAgent.confidence_score",
+                                 "lo": 0.2, "hi": 1.0},
+                "on_violation": on_violation,
+                "escalation":   steps,
+                "decay_check":  None,
+            }
+        },
+        enforce_list=["ConfidenceFloor"],
+    )
+
+
+class TestFlagPreservation(unittest.TestCase):
+
+    def _violating_state(self, counts=None):
+        s = _base_state({"confidence_score": 0.10})
+        if counts:
+            s["violation_counts"] = counts
+        return s
+
+    def _clean_state(self):
+        return _base_state({"confidence_score": 0.85})
+
+    def test_flag_preserved_when_escalation_fires(self):
+        # on_violation: flag, escalation at 3 → freeze. count goes 2→3.
+        ir = _flag_escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        c = trace["constraints"][0]
+        self.assertTrue(c.get("flag_preserved"))
+        self.assertTrue(c.get("escalation_fired"))
+        self.assertEqual(c["action"], "freeze")
+
+    def test_flag_not_preserved_when_no_escalation_fires(self):
+        # count goes 0→1, threshold at 3 not yet met
+        ir = _flag_escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state())
+        c = trace["constraints"][0]
+        self.assertFalse(c.get("flag_preserved", False))
+
+    def test_flag_not_preserved_when_original_has_no_flag(self):
+        # on_violation: warn (no flag), escalation fires
+        ir = _flag_escalating_ir(on_violation=["warn"])
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        c = trace["constraints"][0]
+        self.assertFalse(c.get("flag_preserved", False))
+        self.assertTrue(c.get("escalation_fired"))
+
+    def test_final_action_becomes_compound_when_flag_preserved(self):
+        ir = _flag_escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertEqual(trace["final_action"], "flag + freeze")
+
+    def test_final_action_unchanged_when_no_flag_in_original(self):
+        ir = _flag_escalating_ir(on_violation=["warn"])
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertEqual(trace["final_action"], "freeze")
+
+    def test_mixed_violations_flag_preserved_from_flag_constraint_only(self):
+        # ConstraintA: on_violation flag, escalates to freeze
+        # ConstraintB: on_violation warn, escalates to freeze
+        # Expected final: flag + freeze (only A contributes flag)
+        ir = _base_ir(
+            constraints={
+                "ConstraintA": {
+                    "priority":     "high",
+                    "rule":         {"kind": "range_rule",
+                                     "ref": "TestAgent.confidence_score",
+                                     "lo": 0.2, "hi": 1.0},
+                    "on_violation": ["flag"],
+                    "escalation":   [{"at": 2.0, "action": "freeze"}],
+                    "decay_check":  None,
+                },
+                "ConstraintB": {
+                    "priority":     "high",
+                    "rule":         {"kind": "range_rule",
+                                     "ref": "TestAgent.confidence_score",
+                                     "lo": 0.2, "hi": 1.0},
+                    "on_violation": ["warn"],
+                    "escalation":   [{"at": 2.0, "action": "freeze"}],
+                    "decay_check":  None,
+                },
+            },
+            enforce_list=["ConstraintA", "ConstraintB"],
+        )
+        state = self._violating_state({"ConstraintA": 1, "ConstraintB": 1})
+        trace, _, _ = resolve(ir, state)
+        self.assertEqual(trace["final_action"], "flag + freeze")
+
+    def test_no_double_flag_when_escalation_already_contains_flag(self):
+        # on_violation: flag, escalation fires to flag + escalate
+        # flag already in operational action → no prefix added
+        ir = _flag_escalating_ir(steps=[{"at": 2.0, "action": "flag + escalate"}])
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 1}))
+        self.assertEqual(trace["final_action"], "flag + escalate")
+        c = trace["constraints"][0]
+        self.assertFalse(c.get("flag_preserved", False))
+
+    def test_flag_preserved_trace_render_shows_line(self):
+        ir = _flag_escalating_ir()
+        _, rendered, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertIn("Flag preserved", rendered)
+        self.assertIn("audit log maintained", rendered)
+
+    def test_flag_preserved_final_action_in_rendered_trace(self):
+        ir = _flag_escalating_ir()
+        _, rendered, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertIn("flag + freeze", rendered)
+
+    def test_system_state_frozen_with_flag_preserved(self):
+        # flag + freeze → system_state should still be "frozen"
+        ir = _flag_escalating_ir()
+        trace, _, _ = resolve(ir, self._violating_state({"ConfidenceFloor": 2}))
+        self.assertEqual(trace["system_state"], "frozen")
+
+    def test_flag_not_preserved_on_clean_run(self):
+        ir = _flag_escalating_ir()
+        trace, _, _ = resolve(ir, self._clean_state())
+        c = trace["constraints"][0]
+        self.assertFalse(c.get("flag_preserved", False))
 
 
 if __name__ == "__main__":

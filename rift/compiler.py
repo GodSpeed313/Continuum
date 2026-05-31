@@ -167,6 +167,16 @@ def _emit_constraints(ir: dict) -> str:
     return "\n\n".join(blocks)
 
 
+def _emit_arbiter() -> str:
+    return (
+        "arbiter GovernancePolicy {\n"
+        "    acceptable_evolution:  []\n"
+        "    never_acceptable:      []\n"
+        "    requires_human_review: []\n"
+        "}"
+    )
+
+
 def _emit_enforce(ir: dict) -> str:
     """Emit one enforce block per entity, listing all constraints that apply to it."""
     # Map constraint_name → entity (from the intent's generates + matching map)
@@ -218,6 +228,7 @@ class RiftCompiler:
             _emit_maps(self.ir["maps"]),
             _emit_constraints(self.ir),
             _emit_enforce(self.ir),
+            _emit_arbiter(),
         ]
         return "\n\n".join(p for p in parts if p.strip()) + "\n"
 

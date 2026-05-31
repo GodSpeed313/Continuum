@@ -1,8 +1,16 @@
 # Pi Script v0.2 — Grammar Specification
 
-**AI Governance Domain — Draft 7**
+**AI Governance Domain — Draft 8**
 *A language for defining what must remain true while everything else changes.*
 *May 2026*
+
+---
+
+## Draft 8 — Changes from Draft 7
+
+- **Section 2.6:** Arbiter block is now required in the primary domain. Files without an `arbiter` block fail validation.
+- **Section IX:** Ruling 9.7 — Arbiter Mandatory. Defines arbiter-required gate, flag-as-always-additive algorithm, `flag_preserved` marker in constraint trace, and compound final action construction.
+- **Section XI:** Document status updated to Draft 8.
 
 ---
 
@@ -605,16 +613,152 @@ No implementation step begins until the previous step has passing tests.
 
 ---
 
+---
+
+## Ruling 9.7 — Arbiter Mandatory
+
+### 9.7.1 Motivation
+
+The Arbiter block was introduced in v0.1 as the meta-constraint layer — rules about what the governance system itself must preserve across all operational decisions. In v0.2 Rulings 9.1–9.6 it remained optional, allowing incremental adoption. Ruling 9.7 activates the Arbiter as a hard gate and delivers its first enforced meta-rule: **flag actions can never be suppressed by escalation**.
+
+This addresses the audit-trail gap identified during Ruling 9.6 design: when escalation fires and replaces `on_violation`, a system that was flagging violations before escalation silently stops flagging. A governance tool that stops its audit log because the situation became more severe is less trustworthy, not more.
+
+### 9.7.2 Arbiter Required in Primary Domain
+
+As of Draft 8, every valid Pi Script v0.2 file **must** contain an `arbiter` block in the primary domain. A file that parses successfully but has no `arbiter` declaration fails at the validation stage with:
+
+```text
+Arbiter block is required in the primary domain. Add: arbiter <Name> { ... }
+```
+
+**Scope rules:**
+
+- The requirement applies to the **primary domain only** (the last domain section in a multi-domain file, per Ruling 9.5 semantics).
+- Library domains (earlier sections imported by the primary) are not required to carry an arbiter. They are constraint libraries, not governance authorities.
+- If a library domain declares an arbiter, it is parsed but ignored — library arbiters are not inherited by the primary.
+
+**Minimum valid arbiter block** — the grammar already permits empty-like blocks via `str_list: "[]"`. The simplest valid declaration satisfies the requirement:
+
+```pi
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+```
+
+### 9.7.3 Flag-as-Always-Additive
+
+**Rule:** If a constraint's `on_violation` action contains `flag` (either as `flag` or as part of a compound like `flag + escalate`), that flag is preserved in the final trace action even when an escalation threshold fires and replaces the base action.
+
+**Rationale:** `flag` is a side-channel audit action — it writes to the audit log and notifies reviewers. It is not an operational action level in the severity progression. Suppressing it when escalation kicks in creates a gap in the audit trail at precisely the moment when audit continuity matters most.
+
+**Scope:** The preservation rule applies to the original `on_violation` declaration only. Escalation steps themselves define a severity progression — if a developer writes `at 5: freeze` without including `flag`, that is a conscious choice to transition to a halt state. The Arbiter preserves only what was already being tracked.
+
+### 9.7.4 Flag Preservation Algorithm
+
+The resolver applies flag preservation as a post-processing pass after Q1 violation resolution:
+
+1. For each violated constraint where an escalation threshold fired (`escalation_fired = True`):
+   - Inspect the constraint's original `on_violation` action string.
+   - If the string contains `"flag"`, mark the result with `flag_preserved: True`.
+   - The constraint's individual `action` field remains the escalation action (e.g., `freeze`) — the flag is preserved at the final resolution level, not per-constraint.
+
+2. After `_resolve_violations` produces the operational `final_action`:
+   - If any violated constraint has `flag_preserved: True` **and** `"flag"` is not already present in the operational `final_action`:
+     - `final_action = "flag + " + operational_action`
+   - Otherwise `final_action = operational_action` (unchanged).
+
+3. `_action_to_system_state` uses substring matching (`"freeze" in action`, `"escalate" in action`) and is unaffected by the `flag +` prefix.
+
+**Edge cases:**
+
+- Escalation fires to `flag + escalate`: flag already present in operational action → no double-flag, `final_action = "flag + escalate"`.
+- Multiple simultaneous violations: constraint A (`on_violation: flag`) escalates to `freeze`; constraint B (`on_violation: warn`) escalates to `freeze`. Only A sets `flag_preserved`. `final_action = "flag + freeze"`.
+- No escalation fires: `flag_preserved` is never set. Flag-preservation rule has no effect on non-escalating violations.
+
+### 9.7.5 Compound Final Action Table
+
+The following compound actions are now valid outputs from the resolver. All are JSON-serializable strings.
+
+| Final action | When produced |
+|---|---|
+| `flag + warn` | Escalation fires to `warn`; original had `flag` |
+| `flag + escalate` | Existing — escalation fires to `escalate`; original had `flag` |
+| `flag + rollback` | Escalation fires to `rollback`; original had `flag` |
+| `flag + freeze` | Escalation fires to `freeze`; original had `flag` |
+| `flag + freeze + rollback` | Escalation fires to `freeze + rollback`; original had `flag` |
+
+### 9.7.6 Trace Format — `flag_preserved` Marker
+
+When `flag_preserved: True` is set on a constraint result, the rendered trace shows an additional line between `Violation count` (if present) and `VIOLATION DETECTED`:
+
+```text
+├── CONSTRAINT: ConfidenceFloor [priority: critical]
+│   ├── Rule kind  : range_rule
+│   ├── Evaluation : confidence_score 0.28 < range floor 0.4
+│   ├── Violation count: 4 — escalation threshold met → freeze
+│   ├── Flag preserved : audit log maintained
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : freeze
+```
+
+The final action in the `RESOLUTION` block then shows:
+
+```text
+└── RESOLUTION
+    ├── Action       : flag + freeze
+    ├── System state : frozen
+    └── The rule 'ConfidenceFloor' was broken...
+```
+
+### 9.7.7 Grammar Changes
+
+**None.** The `arbiter_decl` rule already exists and parses correctly. Ruling 9.7 is a validation gate change and a runtime semantic change.
+
+### 9.7.8 IR Shape Changes
+
+**None.** The `arbiter` key already exists in the IR (`"arbiter": null | {...}`). Ruling 9.7 makes `null` an error condition at validation time. The resolver reads `flag_preserved` from individual constraint results, not from the arbiter IR.
+
+### 9.7.9 Backward Compatibility
+
+Files written for v0.2 Rulings 9.4–9.6 that lack an arbiter block will now fail validation. This is a **breaking change** for those files. The fix is minimal — add an arbiter block with empty lists. All v0.1 files without an arbiter block also fail.
+
+The flag-preservation rule is additive: existing programs without escalation blocks are unaffected. Programs with escalation that did not use `flag` in `on_violation` are unaffected.
+
+### 9.7.10 Test Contract
+
+```text
+TestArbiterRequired:
+  test_arbiter_missing_fails_validation
+  test_arbiter_present_passes
+  test_arbiter_library_domain_no_arbiter_ok      (primary has arbiter, library does not)
+  test_arbiter_library_domain_only_fails          (library has arbiter, primary does not)
+
+TestFlagPreservation:
+  test_flag_preserved_escalation_fires            (on_violation flag + escalation → flag_preserved=True)
+  test_flag_not_preserved_no_escalation           (on_violation flag, no escalation fires → no flag_preserved)
+  test_flag_not_preserved_no_flag_in_original     (on_violation warn, escalation fires → no flag_preserved)
+  test_flag_preserved_final_action_compound       (final_action becomes flag + freeze)
+  test_flag_preserved_mixed_violations            (A: flag→freeze; B: warn→freeze → flag + freeze)
+  test_flag_not_doubled_when_already_in_action    (escalation fires to flag + escalate → no double flag)
+  test_flag_preserved_trace_render                (rendered trace shows Flag preserved line)
+```
+
+No implementation step begins until this spec section is locked.
+
+---
+
 ## XI. Document Status
 
 | Field | Value |
 |---|---|
-| Document version | Draft 7 |
+| Document version | Draft 8 |
 | Grammar version | Pi Script v0.2 |
 | Stack | Continuum |
 | Domain scope | AI Governance |
-| Status | Ruling 9.6 (Persistent Violation Counters) complete. Implementation gate open. |
-| Pending rulings | Arbiter mandatory (9.7), Semantic similarity map matching (9.8) |
-| Implementation gate | Draft 7 Ruling 9.6 is the canonical spec for violation counters. No grammar change required. |
-| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–6. All prior rulings (9.1–9.5) remain binding. |
-| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). |
+| Status | Ruling 9.7 (Arbiter Mandatory) spec locked. Implementation gate open. |
+| Pending rulings | Semantic similarity map matching (9.8) |
+| Implementation gate | Draft 8 Ruling 9.7 is the canonical spec for arbiter requirement and flag preservation. No grammar change required. |
+| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–7. All prior rulings (9.1–9.6) remain binding. |
+| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). Draft 8 — arbiter mandatory + flag-as-always-additive (Ruling 9.7). |

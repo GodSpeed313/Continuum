@@ -191,6 +191,11 @@ enforce {
     entity: Agent
     constraints: [ModeCheck]
 }
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
 """
 
 _MAP_WITHOUT_LABEL = _MAP_WITH_LABEL.replace('    label:    "Safe Mode"\n', "")
@@ -261,6 +266,11 @@ enforce {
     entity:      Agent
     constraints: [ConfidenceFloor, ModeCompliance]
 }
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
 """
 
 _SINGLE_DOMAIN = """\
@@ -295,6 +305,11 @@ map NormalMode {
 enforce {
     entity:      Agent
     constraints: [ConfidenceFloor, ModeCompliance]
+}
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
 }
 """
 
@@ -464,3 +479,136 @@ domain ai_governance {
         ok, errors, _ = _validate(source)
         assert not ok
         assert any("ai_governance" in e for e in errors)
+
+
+# ── Ruling 9.7 — Arbiter Mandatory ────────────────────────────────────────────
+
+_MINIMAL_WITH_ARBITER = """\
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: warn
+}
+enforce {
+    entity: Agent
+    constraints: [ScoreFloor]
+}
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+_MINIMAL_WITHOUT_ARBITER = """\
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: warn
+}
+enforce {
+    entity: Agent
+    constraints: [ScoreFloor]
+}
+"""
+
+_MULTI_WITH_ARBITER_IN_PRIMARY = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: warn
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+    imports:        [safety_core.ScoreFloor]
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+enforce {
+    entity: Agent
+    constraints: [ScoreFloor]
+}
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+_MULTI_WITH_ARBITER_IN_LIBRARY_ONLY = """\
+domain safety_core {
+    audit_interval: 24 hours
+    tiebreaker: timestamp_asc
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+constraint ScoreFloor {
+    priority: high
+    rule: Agent.score must remain within range(0.1 .. 1.0)
+    on_violation: warn
+}
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+domain ai_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+    imports:        [safety_core.ScoreFloor]
+}
+entity Agent {
+    score: range(0.0 .. 1.0)
+}
+enforce {
+    entity: Agent
+    constraints: [ScoreFloor]
+}
+"""
+
+
+class TestArbiterRequired:
+
+    def test_arbiter_present_passes(self):
+        ok, errors, _ = _validate(_MINIMAL_WITH_ARBITER)
+        assert ok, errors
+
+    def test_arbiter_missing_fails_validation(self):
+        ok, errors, _ = _validate(_MINIMAL_WITHOUT_ARBITER)
+        assert not ok
+        assert any("Arbiter block is required" in e for e in errors)
+
+    def test_arbiter_library_domain_no_arbiter_ok(self):
+        # Primary has arbiter; library domain does not — should pass
+        ok, errors, _ = _validate(_MULTI_WITH_ARBITER_IN_PRIMARY)
+        assert ok, errors
+
+    def test_arbiter_library_domain_only_fails(self):
+        # Library has arbiter, primary does not — should fail
+        ok, errors, _ = _validate(_MULTI_WITH_ARBITER_IN_LIBRARY_ONLY)
+        assert not ok
+        assert any("Arbiter block is required" in e for e in errors)
