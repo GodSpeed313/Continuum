@@ -141,6 +141,8 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
             updated_violation_counts[cname] = new_count
             escalation_action = _apply_escalation(c_ir.get("escalation", []), new_count)
             if escalation_action is not None:
+                if "flag" in action_str and "flag" not in escalation_action:
+                    result["flag_preserved"] = True
                 result["action"] = escalation_action
                 result["violation_count"] = new_count
                 result["escalation_fired"] = True
@@ -160,7 +162,12 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
     system_state = "running"
 
     if violations:
-        final_action, conflict_resolution = _resolve_violations(violations)
+        operational_action, conflict_resolution = _resolve_violations(violations)
+        any_flag_preserved = any(v.get("flag_preserved") for v in violations)
+        if any_flag_preserved and "flag" not in operational_action:
+            final_action = f"flag + {operational_action}"
+        else:
+            final_action = operational_action
         system_state = _action_to_system_state(final_action)
 
     # ── Step 5: Build triggered_by description ────────────────────────────────

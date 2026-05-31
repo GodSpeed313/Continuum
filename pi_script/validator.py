@@ -374,6 +374,7 @@ class PiValidator:
         self._check_entity_state_refs_exist()
         self._check_membership_rules_have_maps()
         self._check_enforce_refs_declared()
+        self._check_arbiter_required()
 
         return (len(self.errors) == 0), self.errors, self.ir
 
@@ -559,6 +560,13 @@ class PiValidator:
                         f"enforce block for '{entity}' references "
                         f"undeclared constraint '{name}'."
                     )
+
+    def _check_arbiter_required(self):
+        if self.ir.get("arbiter") is None:
+            self.errors.append(
+                "Arbiter block is required in the primary domain. "
+                "Add: arbiter <Name> { acceptable_evolution: [] ... }"
+            )
 
 
 # ── Private helper ────────────────────────────────────────────────────────────

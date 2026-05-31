@@ -45,3 +45,9 @@ enforce {
     entity:      Project
     constraints: [ShelvedProjectGuard, ActiveProjectGuard]
 }
+
+arbiter GovernancePolicy {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}

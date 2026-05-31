@@ -123,7 +123,9 @@ def render_trace(trace: dict[str, Any]) -> str:
                     else:
                         vc_line = str(vc)
                 lines.append(f"│   ├── Violation count: {vc_line}")
-            lines.append(f"│   ├── ✗ VIOLATION DETECTED")
+            if c.get("flag_preserved"):
+                lines.append("│   ├── Flag preserved : audit log maintained")
+            lines.append("│   ├── ✗ VIOLATION DETECTED")
             lines.append(f"│   └── Action     : {c.get('action', 'none')}")
         lines.append("│")
 
@@ -239,6 +241,8 @@ def _build_constraint_block(c: dict[str, Any]) -> dict[str, Any]:
         block["escalation_fired"] = True
     if c.get("escalation_next") is not None:
         block["escalation_next"] = c["escalation_next"]
+    if c.get("flag_preserved"):
+        block["flag_preserved"] = True
     return block
 
 
@@ -311,10 +315,21 @@ def _action_to_plain(action: str | None) -> str:
     if not action:
         return "no action was taken"
     mapping = {
-        "flag":              "this has been logged for review",
-        "warn":              "a warning has been issued to the operator",
-        "escalate":          "this has been sent to a human reviewer",
-        "flag + escalate":   "this has been logged and sent to a human reviewer",
+        "flag":                     "this has been logged for review",
+        "warn":                     "a warning has been issued to the operator",
+        "escalate":                 "this has been sent to a human reviewer",
+        "flag + warn":              "this has been logged and a warning issued to the operator",
+        "flag + escalate":          "this has been logged and sent to a human reviewer",
+        "flag + rollback": (
+            "this has been logged and the system rolled back to its last verified state"
+        ),
+        "flag + freeze": (
+            "this has been logged and the system has been paused until a human clears it"
+        ),
+        "flag + freeze + rollback": (
+            "this has been logged, the system has been paused, "
+            "and rolled back to its last verified state"
+        ),
         "freeze":            "the system has been paused until a human clears it",
         "rollback":          "the system has been rolled back to its last verified state",
         "freeze + rollback": (
