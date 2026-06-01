@@ -100,11 +100,12 @@ escalation_action: ACTION_KW
 // ═══ Map (human language → machine state; first-class construct) ══════════
 map_decl: "map" PASCAL_ID "{" map_item+ "}"
 
-map_item: "target"     ":" state_ref    -> mi_target
-        | "triggers"   ":" trigger_list -> mi_triggers
-        | "maps_to"    ":" pi_value     -> mi_maps_to
-        | "match_mode" ":" match_mode   -> mi_match_mode
-        | "label"      ":" ESCAPED_STRING -> mi_label
+map_item: "target"               ":" state_ref      -> mi_target
+        | "triggers"             ":" trigger_list   -> mi_triggers
+        | "maps_to"              ":" pi_value       -> mi_maps_to
+        | "match_mode"           ":" match_mode     -> mi_match_mode
+        | "label"                ":" ESCAPED_STRING -> mi_label
+        | "similarity_threshold" ":" PI_NUMBER      -> mi_sim_threshold
 
 trigger_list: "[" trigger_entry ("," trigger_entry)* "]"
 
@@ -112,7 +113,7 @@ trigger_entry: ESCAPED_STRING
              | "regex" ":" ESCAPED_STRING -> regex_trigger
 
 match_mode: MATCH_MODE_KW
-MATCH_MODE_KW: "substring" | "exact"
+MATCH_MODE_KW: "substring" | "exact" | "semantic"
 
 // ═══ Enforce (activates constraints against named entities) ════════════════
 enforce_decl: "enforce" "{" enforce_item+ "}"

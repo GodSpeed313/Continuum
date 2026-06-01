@@ -1,8 +1,16 @@
 # Pi Script v0.2 — Grammar Specification
 
-**AI Governance Domain — Draft 8**
+**AI Governance Domain — Draft 9**
 *A language for defining what must remain true while everything else changes.*
 *May 2026*
+
+---
+
+## Draft 9 — Changes from Draft 8
+
+- **Section 2.4:** Map block gains two new optional fields: `match_mode: semantic` (Tier 3 opt-in) and `similarity_threshold` (required when `match_mode` is `semantic`). Existing maps without these fields are unchanged.
+- **Section IX:** Ruling 9.8 — Semantic Similarity Map Matching. Defines Tier 3 semantic matching, `similarity_threshold` validation contract, graceful degradation to Tier 1, `semantic_match` trace line, and `DEGRADED` trace warning.
+- **Section XI:** Document status updated to Draft 9.
 
 ---
 
@@ -52,7 +60,7 @@ Pi Script v0.1 maps are unidirectional: human trigger text maps forward to a mac
 
 The consequence appears in RESOLUTION TRACEs. When a membership rule is evaluated, the trace currently displays the raw machine state value:
 
-```
+```text
 ├── CONSTRAINT: TopicCompliance [priority: medium]
 │   ├── Rule kind  : membership_rule
 │   ├── Evaluation : session_topic = 'runtime', matched in valid set ['runtime', 'spec', 'structure']
@@ -71,7 +79,7 @@ Add an optional `label` field to the existing map block. The `label` is the cano
 
 **New map block syntax (v0.2):**
 
-```
+```pi
 map RuntimeTopic {
     target:   ContinuumSession.session_topic
     maps_to:  "runtime"
@@ -82,7 +90,7 @@ map RuntimeTopic {
 
 **v0.1 map block without label — valid in v0.2:**
 
-```
+```pi
 map RuntimeTopic {
     target:   ContinuumSession.session_topic
     maps_to:  "runtime"
@@ -99,7 +107,7 @@ Both forms are valid. `label` is optional. Omitting it preserves exact v0.1 beha
 The term "bidirectional" in this ruling refers to **lookup direction only**, not trigger direction.
 
 | Direction | v0.1 | v0.2 |
-|---|---|---|
+| --- | --- | --- |
 | Forward (human text → machine state) | ✅ via `triggers` | ✅ unchanged |
 | Reverse (machine state → human label) | ❌ no reverse | ✅ via `label` |
 
@@ -116,7 +124,7 @@ The map block gains one optional field. All existing fields are unchanged.
 **v0.2 map block fields:**
 
 | Field | Required | Type | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `target` | ✅ | `ENTITY.FIELD` | Entity state field being mapped |
 | `maps_to` | ✅ | `QUOTED_STRING` | Machine state value this map block represents |
 | `triggers` | ✅ | `[QUOTED_STRING, ...]` | Forward-direction trigger strings |
@@ -124,7 +132,7 @@ The map block gains one optional field. All existing fields are unchanged.
 
 **Grammar rule delta (Lark):**
 
-```
+```lark
 // v0.1
 map_decl : "map" PASCAL_ID "{" map_field+ "}"
 map_field : target_field | maps_to_field | triggers_field
@@ -145,6 +153,7 @@ A map block with `label` is a valid v0.2 program. A map block without `label` is
 **Reverse-lookup definition:**
 
 Given a `(state_ref, current_value)` pair, find the map block where:
+
 - `target` equals `state_ref`
 - `maps_to` equals `current_value`
 
@@ -156,13 +165,13 @@ If not found: return `current_value` unchanged.
 
 When a `membership_rule` constraint is evaluated and the current value matches a map block that has a `label`, the RESOLUTION TRACE evaluation line renders as:
 
-```
+```text
 Evaluation : session_topic = 'runtime' (Runtime & Evaluation), matched in valid set [...]
 ```
 
 Without `label`, the trace renders exactly as v0.1:
 
-```
+```text
 Evaluation : session_topic = 'runtime', matched in valid set [...]
 ```
 
@@ -242,7 +251,7 @@ Add an optional `imports` field to the `domain` block. The `imports` field lists
 
 **New domain block syntax (v0.2):**
 
-```
+```pi
 domain safety_core {
     audit_interval: 24 hours
     tiebreaker:     timestamp_asc
@@ -295,7 +304,7 @@ The field **type** is not required to be identical — the validator only checks
 
 If the importing domain does not have a matching entity and field, the validator emits an error:
 
-```
+```text
 Import 'safety_core.ConfidenceFloor' targets 'Agent.confidence_score' but
 entity 'Agent' has no field 'confidence_score' in domain 'ai_governance'.
 ```
@@ -308,7 +317,7 @@ The `domain` block gains one optional `imports` item. The existing `domain_item`
 
 **Grammar rule delta (Lark):**
 
-```
+```lark
 // v0.1
 domain_item : duration
             | tiebreaker_mode
@@ -345,7 +354,7 @@ When the validator processes `imports: [safety_core.ConfidenceFloor]`:
 
 When an imported constraint appears in a RESOLUTION TRACE, the constraint header line includes the source domain in parentheses:
 
-```
+```text
 ├── CONSTRAINT: ConfidenceFloor [priority: critical] (imported from safety_core)
 ```
 
@@ -421,7 +430,7 @@ No implementation step begins until the previous step has passing tests.
 
 The `escalation_block` grammar has existed since v0.1:
 
-```
+```pi
 constraint ConfidenceFloor {
     priority:     critical
     rule:         TaskAgent.confidence_score must remain within range(0.2 .. 1.0)
@@ -469,10 +478,12 @@ Given a violated constraint with an `escalation` list and its current (post-incr
 4. If no step threshold is met (count is below the lowest `at`): use `on_violation` as normal.
 
 **Example:** `escalation: [{at: 3, action: "escalate"}, {at: 10, action: "freeze"}]`, count = 4.
+
 - Step `at 3` is met (4 >= 3). Step `at 10` is not met (4 < 10).
 - Effective action: `escalate` (replaces base `on_violation: warn`).
 
 **Example:** count = 11.
+
 - Both steps met. Highest threshold is `at 10`.
 - Effective action: `freeze`.
 
@@ -491,7 +502,8 @@ The validator gains one new semantic check: **escalation thresholds must be posi
 `PI_NUMBER` in the grammar allows floats (e.g. `1.5`). `at 1.5 violations` parses but is semantically invalid — violation counts are whole numbers. The validator must reject any escalation step where the threshold value has a fractional part or is zero or negative.
 
 **Error message:**
-```
+
+```text
 Constraint 'ConfidenceFloor': escalation threshold must be a positive integer (got 1.5).
 ```
 
@@ -510,6 +522,7 @@ violation_counts: dict[str, int] = state.get("violation_counts", {})
 **Per-constraint evaluation update:**
 
 For each violated constraint:
+
 1. `count = violation_counts.get(cname, 0) + 1` — increment (not yet persisted)
 2. Find the highest-threshold escalation step where `int(step["at"]) <= count`.
 3. If found: effective action = step action (replaces `on_violation`).
@@ -537,7 +550,7 @@ Only constraints that were violated in this evaluation appear in `updated_violat
 
 When a constraint is **violated** and has a non-zero violation count, the RESOLUTION TRACE includes a `Violation count` line:
 
-```
+```text
 ├── CONSTRAINT: ConfidenceFloor [priority: critical]
 │   ├── Rule kind      : range_rule
 │   ├── Evaluation     : confidence_score = 0.10, below floor 0.2
@@ -547,7 +560,7 @@ When a constraint is **violated** and has a non-zero violation count, the RESOLU
 
 When violated but below all escalation thresholds (or no escalation block):
 
-```
+```text
 ├── CONSTRAINT: ConfidenceFloor [priority: critical]
 │   ├── Rule kind      : range_rule
 │   ├── Evaluation     : confidence_score = 0.10, below floor 0.2
@@ -682,7 +695,7 @@ The resolver applies flag preservation as a post-processing pass after Q1 violat
 The following compound actions are now valid outputs from the resolver. All are JSON-serializable strings.
 
 | Final action | When produced |
-|---|---|
+| --- | --- |
 | `flag + warn` | Escalation fires to `warn`; original had `flag` |
 | `flag + escalate` | Existing — escalation fires to `escalate`; original had `flag` |
 | `flag + rollback` | Escalation fires to `rollback`; original had `flag` |
@@ -749,16 +762,190 @@ No implementation step begins until this spec section is locked.
 
 ---
 
+## Ruling 9.8 — Semantic Similarity Map Matching
+
+**Status:** Binding for implementation. No code may be written against this ruling until this section is complete. This is the canonical v0.2 spec ruling for semantic similarity map matching.
+
+---
+
+### 9.8.1 Problem
+
+Pi Script v0.1 and all v0.2 rulings through 9.7 define map trigger matching as Tier 1 (substring) or Tier 2 (regex). Both tiers are lexical: a trigger fires only when its literal pattern appears in the input text. This fails for AI governance contexts where the same semantic intent surfaces in many lexical forms.
+
+Example: a contradiction trigger `"running"` will not match the response `"the service is currently active"` even though both express the same state. Lexical matching forces governance authors to enumerate every surface form — an unbounded, brittle list.
+
+The consequence is a governance gap: semantically equivalent inputs escape detection and governance constraints fail silently on paraphrase.
+
+### 9.8.2 Solution
+
+Ruling 9.8 introduces **Tier 3: Semantic Matching** as a per-map opt-in. A map block that declares `match_mode: semantic` and `similarity_threshold: <float>` causes the resolver to compare input text against trigger patterns using vector embedding cosine similarity rather than substring containment.
+
+**Tier hierarchy (all tiers remain active; Tier 3 is additive):**
+
+| Tier | Field value | Algorithm |
+| --- | --- | --- |
+| 1 | `match_mode: substring` (default) | Trigger string contained in input |
+| 2 | `match_mode: exact` | Exact trigger string equality |
+| 3 | `match_mode: semantic` | Cosine similarity of vector embeddings ≥ threshold |
+
+Semantic matching is **never the default**. It requires an explicit `match_mode: semantic` declaration. Files without it are unaffected.
+
+### 9.8.3 Syntax
+
+Two new optional fields on map blocks:
+
+```pi
+map StatusMap {
+    target:               Service.status
+    maps_to:              "active"
+    triggers:             ["running", "started", "online"]
+    match_mode:           semantic
+    similarity_threshold: 0.85
+}
+```
+
+**`match_mode: semantic`** — Selects Tier 3 for this map. Required alongside `similarity_threshold`.
+
+**`similarity_threshold: <float>`** — Cosine similarity score required for a trigger to fire. Valid range: `(0.0, 1.0]` (exclusive lower bound, inclusive upper bound). A threshold of `1.0` requires exact semantic equivalence; a threshold of `0.0` is rejected as a governance bypass (mirrors the positive-integer requirement of Ruling 9.6 escalation thresholds).
+
+### 9.8.4 Grammar Change
+
+Two additions to the `map_item` rule and one terminal extension:
+
+```lark
+map_item: ...
+        | "similarity_threshold" ":" PI_NUMBER -> mi_sim_threshold
+
+MATCH_MODE_KW: "substring" | "exact" | "semantic"
+```
+
+`PI_NUMBER` already exists. The range constraint `(0.0, 1.0]` is enforced by the semantic validator, not the grammar.
+
+### 9.8.5 Validator Contract
+
+The semantic validator must enforce:
+
+1. **Threshold range**: `similarity_threshold` must satisfy `0.0 < value ≤ 1.0`. Values of `0.0` or below are rejected (governance bypass). Values above `1.0` are rejected (unreachable threshold).
+2. **Paired requirement**: `match_mode: semantic` without `similarity_threshold` is an error.
+3. **Isolation requirement**: `similarity_threshold` without `match_mode: semantic` is an error. Threshold values have no meaning in Tier 1 or Tier 2 matching.
+4. **No change for existing maps**: Maps without `match_mode` or `similarity_threshold` are valid and unchanged.
+
+### 9.8.6 IR Shape
+
+The map entry in the IR gains two optional keys when Tier 3 is declared:
+
+```json
+{
+  "maps_to": "active",
+  "triggers": ["running", "started", "online"],
+  "match_mode": "semantic",
+  "similarity_threshold": 0.85
+}
+```
+
+Maps without `match_mode` omit both keys (backwards compatible).
+
+### 9.8.7 Resolver Contract — Semantic Matching Algorithm
+
+**Embedding model:** `sentence-transformers/all-MiniLM-L6-v2` (lightweight, no API key, deterministic within a version).
+
+**Algorithm (per semantic map, during contradiction detection):**
+
+1. Collect all non-regex triggers for the map.
+2. Encode `[input_text] + triggers` as normalized embeddings.
+3. Compute cosine similarity between `input_text` embedding and each trigger embedding. With normalized embeddings, cosine similarity equals the dot product.
+4. Select the **maximum score** across all triggers (max-wins). If `max_score ≥ similarity_threshold`, the map fires. The winning trigger and score are recorded for trace output.
+
+**Multi-trigger rule:** Only the best-scoring trigger is reported. The map fires if any trigger exceeds the threshold.
+
+### 9.8.8 Graceful Degradation
+
+If the embedding model is unavailable (package not installed, import error, encoding failure), the resolver **must not crash**. Instead:
+
+1. Fall back to Tier 1 substring matching for that map.
+2. Set `semantic_degraded: True` on the constraint result.
+3. Render a `⚠ DEGRADED` line in the trace (before the violation line if one fires).
+
+The degradation is per-evaluation: a single unavailability event degrades the current resolution only. The system remains available. Degradation is always visible in the trace — silent degradation is a governance violation of the audit-first principle.
+
+### 9.8.9 Trace Contract
+
+For a **semantic match** (model available, threshold met):
+
+```text
+├── CONSTRAINT: TopicCompliance [priority: medium]
+│   ├── Rule kind      : contradiction_rule
+│   ├── Evaluation     : new response matches contradiction trigger 'running' ...
+│   ├── Map match      : 'running' -> contradiction signal
+│   ├── Semantic match : 'running' ~ input (score: 0.91)
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action         : freeze
+```
+
+For a **degraded match** (model unavailable, fell back to substring, still violated):
+
+```text
+├── CONSTRAINT: TopicCompliance [priority: medium]
+│   ├── Rule kind      : contradiction_rule
+│   ├── Evaluation     : new response matches contradiction trigger 'running' ...
+│   ├── Map match      : 'running' -> contradiction signal
+│   ├── ⚠ DEGRADED    : embedding unavailable, fell back to substring matching
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action         : freeze
+```
+
+**Ordering rule:** `⚠ DEGRADED` appears before `Semantic match` (which is omitted when degraded). Both appear before `Flag preserved` (Ruling 9.7) and `✗ VIOLATION DETECTED`.
+
+### 9.8.10 Flag Preservation Integration
+
+Semantic matching does not change the flag-preservation algorithm (Ruling 9.7). If a semantic map fires a constraint whose `on_violation` contains `flag`, and an escalation replaces it, `flag_preserved` is set as defined in 9.7. The trace order is:
+
+```text
+│   ├── ⚠ DEGRADED    : ...         (if degraded)
+│   ├── Semantic match : ...         (if semantic, not degraded)
+│   ├── Violation count: ...
+│   ├── Flag preserved : audit log maintained
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action         : ...
+```
+
+### 9.8.11 Test Contract
+
+```text
+TestSemanticMapValidation:
+  test_valid_semantic_map_ir           (match_mode: semantic + threshold in IR correctly)
+  test_semantic_requires_threshold     (match_mode: semantic without threshold → error)
+  test_threshold_without_semantic      (similarity_threshold without semantic → error)
+  test_threshold_zero_rejected         (similarity_threshold: 0.0 → error)
+  test_threshold_one_accepted          (similarity_threshold: 1.0 → valid, upper bound inclusive)
+  test_threshold_above_one_rejected    (similarity_threshold: 1.1 → error)
+  test_existing_map_unaffected         (map without match_mode still validates)
+
+TestSemanticMapMatching:
+  test_semantic_match_fires_violation  (mock returns score ≥ threshold → violated)
+  test_semantic_no_match_satisfied     (mock returns score < threshold → satisfied)
+  test_semantic_result_has_score       (constraint result carries semantic_match dict)
+  test_trace_shows_semantic_line       (rendered trace includes Semantic match line)
+  test_degraded_substring_fallback     (model unavailable + substring hit → violated + degraded)
+  test_degraded_no_match_satisfied     (model unavailable + no substring → satisfied + degraded)
+  test_trace_shows_degraded_line       (rendered trace shows ⚠ DEGRADED line)
+  test_non_semantic_map_unaffected     (substring map still works, no semantic fields in result)
+```
+
+No implementation step begins until this spec section is locked.
+
+---
+
 ## XI. Document Status
 
 | Field | Value |
-|---|---|
-| Document version | Draft 8 |
+| --- | --- |
+| Document version | Draft 9 |
 | Grammar version | Pi Script v0.2 |
 | Stack | Continuum |
 | Domain scope | AI Governance |
-| Status | Ruling 9.7 (Arbiter Mandatory) spec locked. Implementation gate open. |
-| Pending rulings | Semantic similarity map matching (9.8) |
-| Implementation gate | Draft 8 Ruling 9.7 is the canonical spec for arbiter requirement and flag preservation. No grammar change required. |
-| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–7. All prior rulings (9.1–9.6) remain binding. |
-| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). Draft 8 — arbiter mandatory + flag-as-always-additive (Ruling 9.7). |
+| Status | Ruling 9.8 (Semantic Similarity Map Matching) spec locked. Implementation gate open. |
+| Pending rulings | None |
+| Implementation gate | Draft 9 Ruling 9.8 is the canonical spec for semantic map matching, graceful degradation, and Tier 3 opt-in. Grammar change: `mi_sim_threshold` map item + `semantic` in `MATCH_MODE_KW`. |
+| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–8. All prior rulings (9.1–9.7) remain binding. |
+| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). Draft 8 — arbiter mandatory + flag-as-always-additive (Ruling 9.7). Draft 9 — semantic similarity map matching (Ruling 9.8). |
