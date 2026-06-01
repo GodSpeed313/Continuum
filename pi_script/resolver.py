@@ -167,6 +167,11 @@ def resolve(ir: dict[str, Any], state: dict[str, Any]) -> tuple[dict, str, int]:
                 cname, rule, priority, action_str,
                 response_history, maps_ir
             )
+        elif rule_kind == "bound_rule":
+            if field_name and field_name not in entity_state:
+                evaluated.append(_suspended(cname, f"state field '{field_name}' not in snapshot"))
+                continue
+            result = _eval_bound(cname, rule, priority, action_str, entity_state)
         elif rule_kind == "membership_rule":
             if field_name and field_name not in entity_state:
                 evaluated.append(_suspended(cname, f"state field '{field_name}' not in snapshot"))
@@ -415,6 +420,34 @@ def _eval_membership(name, rule, priority, action, entity_state, maps_ir) -> dic
     return _constraint_result(
         name, priority, "satisfied", "membership_rule",
         f"{field} = {display}, matched in valid set {sorted(valid_values)}",
+    )
+
+
+def _eval_bound(name, rule, priority, action, entity_state) -> dict:
+    """Form 7: state must remain [op] N (one-sided point-in-time bound)."""
+    ref   = rule.get("ref", "")
+    op    = rule.get("op", "<")
+    bound = rule.get("value")
+    field = _field_from_ref(ref)
+    value = entity_state.get(field)
+
+    if value is None:
+        return _suspended(name, f"field '{field}' not in snapshot")
+    try:
+        v = float(value)
+        b = float(bound)
+    except (TypeError, ValueError):
+        return _suspended(name, f"cannot compare '{field}' value '{value}' to bound '{bound}'")
+
+    if _apply_op(v, op, b):
+        return _constraint_result(
+            name, priority, "satisfied", "bound_rule",
+            f"{field} {v} satisfies {op} {b}",
+        )
+    return _constraint_result(
+        name, priority, "violated", "bound_rule",
+        f"{field} {v} violates {op} {b}",
+        action=action,
     )
 
 

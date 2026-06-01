@@ -51,12 +51,13 @@ constraint_item: "priority"     ":" priority_level   -> c_priority
 priority_level: PRIORITY_KW
 PRIORITY_KW: "critical" | "high" | "medium" | "low"
 
-// ─── Six valid rule forms ────────────────────────────────────────────────
+// ─── Seven valid rule forms ───────────────────────────────────────────────
 rule_expr: range_rule
          | threshold_rule
          | equality_rule
          | membership_rule
          | if_rule
+         | bound_rule
 
 // Form 1: Entity.state must remain within range(min..max)
 range_rule: state_ref "must" "remain" "within" "range" "(" PI_NUMBER ".." PI_NUMBER ")"
@@ -69,6 +70,9 @@ equality_rule: state_ref "must" "equal" pi_value
 
 // Form 6: Entity.state must match mapped_values  (validator checks map exists)
 membership_rule: state_ref "must" "match" "mapped_values"
+
+// Form 7: Entity.state must remain [op] N (one-sided point-in-time bound)
+bound_rule: state_ref "must" "remain" COMP_OP PI_NUMBER
 
 // Forms 4 & 5: if-then rules (conditional + contradiction detection unified)
 // Validator distinguishes the three if_condition variants for semantic checks.
