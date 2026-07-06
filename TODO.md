@@ -29,4 +29,13 @@ for long-term robustness.
 - [x] M3 — Parser — 9/9 tests passing
 - [x] M4 — Resolver core — 89/89 tests passing
 - [x] M5 — Dogfood — gate met (6+ violations across two independent systems: 2 Continuum session + 4+ Melody Maestro automated, 23-day active run)
-- [ ] M6 — Publish (paper drafted at docs/m6_paper_draft1.md · playground pending)
+- [x] M6 — Publish — ConsistencyGuard activated, Rift v0.1 shipped, Jupyter playground live (paper at docs/m6_paper_draft1.md)
+
+## v0.2 ruling tracker
+
+- [x] Ruling 9.4 — bidirectional map blocks (PR #10)
+- [x] Ruling 9.5 — cross-domain constraint inheritance (PR #11)
+- [x] Ruling 9.6 — persistent violation counters (PR #12)
+- [x] Ruling 9.7 — arbiter mandatory + flag-as-always-additive (PR #13)
+- [x] Ruling 9.8 — semantic similarity map matching (PR #14, #15)
+- [ ] Ruling 9.9 — standing bound rule / Form 7 (PR #16, open)
