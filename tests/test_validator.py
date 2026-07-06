@@ -732,6 +732,72 @@ class TestSemanticMapValidation:
                 assert "similarity_threshold" not in entry
 
 
+# ── Ruling 9.9 fixtures ───────────────────────────────────────────────────────
+
+_BOUND_RULE_VALID = """\
+domain primary {
+    audit_interval: 1 hour
+    tiebreaker: timestamp_asc
+}
+entity Model {
+    mse: range(0.0 .. 1.0)
+}
+constraint MseFloor {
+    priority:     high
+    rule:         Model.mse must remain < 0.8
+    on_violation: flag
+}
+enforce {
+    entity:      Model
+    constraints: [MseFloor]
+}
+arbiter Gov {
+    acceptable_evolution:  []
+    never_acceptable:      []
+    requires_human_review: []
+}
+"""
+
+
+class TestBoundRuleValidation:
+
+    def test_valid_bound_rule_ir(self):
+        ok, errors, ir = _validate(_BOUND_RULE_VALID)
+        assert ok, errors
+        rule = ir["constraints"]["MseFloor"]["rule"]
+        assert rule["kind"] == "bound_rule"
+        assert rule["ref"] == "Model.mse"
+        assert rule["op"] == "<"
+        assert rule["value"] == 0.8
+
+    def test_bound_rule_ge_valid(self):
+        source = _BOUND_RULE_VALID.replace("must remain < 0.8", "must remain >= 0.2")
+        ok, errors, _ = _validate(source)
+        assert ok, errors
+
+    def test_bound_rule_le_valid(self):
+        source = _BOUND_RULE_VALID.replace("must remain < 0.8", "must remain <= 0.8")
+        ok, errors, _ = _validate(source)
+        assert ok, errors
+
+    def test_bound_rule_gt_valid(self):
+        source = _BOUND_RULE_VALID.replace("must remain < 0.8", "must remain > 0.2")
+        ok, errors, _ = _validate(source)
+        assert ok, errors
+
+    def test_bound_op_eq_rejected(self):
+        source = _BOUND_RULE_VALID.replace("must remain < 0.8", "must remain == 0.5")
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("==" in e for e in errors)
+
+    def test_bound_op_neq_rejected(self):
+        source = _BOUND_RULE_VALID.replace("must remain < 0.8", "must remain != 0.5")
+        ok, errors, _ = _validate(source)
+        assert not ok
+        assert any("!=" in e for e in errors)
+
+
 class TestArbiterRequired:
 
     def test_arbiter_present_passes(self):

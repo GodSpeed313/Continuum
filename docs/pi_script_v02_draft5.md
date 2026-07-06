@@ -1,8 +1,16 @@
 # Pi Script v0.2 — Grammar Specification
 
-**AI Governance Domain — Draft 9**
+**AI Governance Domain — Draft 10**
 *A language for defining what must remain true while everything else changes.*
 *May 2026*
+
+---
+
+## Draft 10 — Changes from Draft 9
+
+- **Section 2.3:** Rule expression gains Form 7 (`bound_rule`): `Entity.state must remain [op] N`, one-sided point-in-time bound using relational operators. Reuses `COMP_OP` terminal. Validator restricts to `<`, `<=`, `>`, `>=`.
+- **Section IX:** Ruling 9.9 — Standing Bound Rule. Defines `bound_rule` form, operator restriction contract, resolver evaluation, and trace format. Positions Form 7 against Forms 1 and 3: range (two-sided inclusive), threshold (one-sided windowed), bound (one-sided point-in-time).
+- **Section XI:** Document status updated to Draft 10.
 
 ---
 
@@ -936,16 +944,169 @@ No implementation step begins until this spec section is locked.
 
 ---
 
+## Ruling 9.9 — Standing Bound Rule
+
+**Status:** Binding for implementation. No code may be written against this ruling until this section is complete. This is the canonical v0.2 spec ruling for the standing one-sided bound rule form.
+
+---
+
+### 9.9.1 Problem
+
+Pi Script has three constraint forms that check numeric state, but none that expresses a standing one-sided point-in-time bound:
+
+| Form | Syntax pattern | Evaluation engine |
+| --- | --- | --- |
+| 1 — `range_rule` | `must remain within range(lo..hi)` | Two-sided inclusive; checks `lo ≤ value ≤ hi` at evaluation time |
+| 3 — `threshold_rule` | `must remain below N within duration` | One-sided windowed; aggregates over a rolling time window |
+| *(missing)* | `must remain < N` | One-sided point-in-time; checks a single relational bound at each evaluation |
+
+The gap surfaces in the quantization governance use case, which requires constraints such as:
+
+- `Model.mse must remain < 0.8` — MSE must be strictly below 0.8 at every check
+- `Model.snr must remain >= 21.0` — SNR must be at least 21.0 at every check
+
+`range_rule` cannot express these because it requires two bounds and uses inclusive `within range(lo..hi)` semantics — strict less-than is not representable. `threshold_rule` cannot express them because it requires a time window (`within <duration>`).
+
+**Making `within <duration>` optional on Form 3 was considered and rejected.** Windowed threshold and point-in-time bound are different evaluation engines: one aggregates over a rolling window, the other checks the current snapshot. An optional clause that silently switches evaluation mode is a footgun in a governance language — audit traces read by non-experts cannot safely distinguish `must remain below 0.8` from `must remain below 0.8 within 24h` when both are written in identical prose. The operator symbol signals the difference on the page.
+
+### 9.9.2 Solution — Form 7: `bound_rule`
+
+Form 7 is a **standing one-sided bound**: a constraint that must hold at every evaluation against the current snapshot, using a relational operator.
+
+**The three numeric bound forms positioned against each other:**
+
+| Form | Syntax | Bounds | Time window | Operators |
+| --- | --- | --- | --- | --- |
+| 1 — `range_rule` | `must remain within range(lo..hi)` | Two-sided | No | Implicit `<=` both sides |
+| 3 — `threshold_rule` | `must remain below N within duration` | One-sided | Yes | Implicit `<` only |
+| 7 — `bound_rule` | `must remain [op] N` | One-sided | No | `<`, `<=`, `>`, `>=` |
+
+Form 7 earns a seventh rule kind because it expresses a class of constraint (`value < 0.8`) that neither Form 1 (inclusive two-sided, no strict less-than) nor Form 3 (always windowed) can represent.
+
+### 9.9.3 Syntax
+
+```pi
+constraint MseFloor {
+    priority:     high
+    rule:         Model.mse must remain < 0.8
+    on_violation: flag
+}
+
+constraint SnrFloor {
+    priority:     high
+    rule:         Model.snr must remain >= 21.0
+    on_violation: escalate
+}
+```
+
+**Valid operators:** `<`, `<=`, `>`, `>=`
+
+**Deferred operators:** `==` (use `equality_rule` — Form 2) and `!=` (future ruling). The operator `==` in a `bound_rule` context is a semantic error; `!=` is not yet defined.
+
+### 9.9.4 Grammar Change
+
+Add `bound_rule` to `rule_expr`. Reuse the existing `COMP_OP` terminal (already defined for `if_rule`) — no new terminals required:
+
+```lark
+rule_expr: range_rule
+         | threshold_rule
+         | equality_rule
+         | membership_rule
+         | if_rule
+         | bound_rule
+
+// Form 7: Entity.state must remain [op] N (one-sided point-in-time bound)
+bound_rule: state_ref "must" "remain" COMP_OP PI_NUMBER
+```
+
+`COMP_OP` is already defined: `">=" | "<=" | "==" | "!=" | ">" | "<"`. The validator (not the grammar) restricts usage to the four relational operators.
+
+### 9.9.5 Validator Contract
+
+The semantic validator must enforce:
+
+1. **Operator restriction:** `==` in a `bound_rule` is an error: `"Use 'must equal <value>' for equality checks (Form 2)."` `!=` is an error: `"must remain != N is not yet supported. Use a dedicated equality constraint."` Only `<`, `<=`, `>`, `>=` are valid.
+2. **State ref must exist:** The `state_ref` must reference a declared entity and field (existing check, already applied to all rule forms).
+3. **No change to existing forms:** `threshold_rule`, `range_rule`, and all other forms are unchanged.
+
+### 9.9.6 IR Shape
+
+```json
+{
+  "kind":  "bound_rule",
+  "ref":   "Model.mse",
+  "op":    "<",
+  "value": 0.8
+}
+```
+
+`value` is a Python `float`. `op` is one of `"<"`, `"<="`, `">"`, `">="`.
+
+### 9.9.7 Resolver Contract
+
+For a `bound_rule`:
+
+1. Get the field value from `entity_state` using `field = _field_from_ref(ref)`.
+2. Coerce `value` and `bound` to `float`. If coercion fails: suspend the constraint (`"cannot compare '{field}' value '{value}' to bound '{bound}'"`) — mirrors the existing coercion pattern from `threshold_rule`.
+3. Apply: the constraint is **violated** if `not _apply_op(value, op, bound)`. The existing `_apply_op` helper handles all six `COMP_OP` operators and is reused without modification.
+4. On satisfied: return satisfied result. On violated: return violated result with `action`.
+
+`_apply_op` is already correct for all four required operators — no change needed.
+
+### 9.9.8 Trace Contract
+
+**Satisfied:**
+
+```text
+├── CONSTRAINT: MseFloor [priority: high]
+│   ├── Rule kind  : bound_rule
+│   ├── Evaluation : mse 0.65 satisfies < 0.8
+│   └── ✓ SATISFIED — no action
+```
+
+**Violated:**
+
+```text
+├── CONSTRAINT: MseFloor [priority: high]
+│   ├── Rule kind  : bound_rule
+│   ├── Evaluation : mse 0.91 violates < 0.8
+│   ├── ✗ VIOLATION DETECTED
+│   └── Action     : flag
+```
+
+Evaluation line format: `{field} {value} satisfies|violates {op} {bound}`. Value is rendered as-is (no formatting transformation). The operator symbol appears literally — the trace is unambiguous about which operator was declared.
+
+### 9.9.9 Test Contract
+
+```text
+TestBoundRule:
+  test_bound_less_than_satisfied         (value=0.5, bound=0.8, op=< → satisfied)
+  test_bound_less_than_violated          (value=0.9, bound=0.8, op=< → violated)
+  test_bound_less_than_eq_satisfied      (value=0.8, bound=0.8, op=<= → satisfied)
+  test_bound_less_than_eq_violated       (value=0.81, bound=0.8, op=<= → violated)
+  test_bound_greater_than_satisfied      (value=22.0, bound=21.0, op=> → satisfied)
+  test_bound_greater_than_violated       (value=20.0, bound=21.0, op=> → violated)
+  test_bound_greater_than_eq_satisfied   (value=21.0, bound=21.0, op=>= → satisfied)
+  test_bound_trace_evaluation_line       (rendered trace shows field + op + bound)
+  test_bound_rule_ir_shape               (validator extracts kind, ref, op, value correctly)
+  test_bound_op_eq_rejected              (validator rejects == in bound_rule)
+  test_bound_op_neq_rejected             (validator rejects != in bound_rule)
+```
+
+No implementation step begins until this spec section is locked.
+
+---
+
 ## XI. Document Status
 
 | Field | Value |
 | --- | --- |
-| Document version | Draft 9 |
+| Document version | Draft 10 |
 | Grammar version | Pi Script v0.2 |
 | Stack | Continuum |
 | Domain scope | AI Governance |
-| Status | Ruling 9.8 (Semantic Similarity Map Matching) spec locked. Implementation gate open. |
+| Status | Ruling 9.9 (Standing Bound Rule) spec locked. Implementation gate open. |
 | Pending rulings | None |
-| Implementation gate | Draft 9 Ruling 9.8 is the canonical spec for semantic map matching, graceful degradation, and Tier 3 opt-in. Grammar change: `mi_sim_threshold` map item + `semantic` in `MATCH_MODE_KW`. |
-| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–8. All prior rulings (9.1–9.7) remain binding. |
-| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). Draft 8 — arbiter mandatory + flag-as-always-additive (Ruling 9.7). Draft 9 — semantic similarity map matching (Ruling 9.8). |
+| Implementation gate | Draft 10 Ruling 9.9 is the canonical spec for the bound_rule form. Grammar change: `bound_rule` added to `rule_expr`, reuses `COMP_OP`. |
+| Base | Builds on Pi Script v0.1 Draft 4 and v0.2 Drafts 5–9. All prior rulings (9.1–9.8) remain binding. |
+| Draft history | Draft 1 — Section IX open. Draft 2 — Q1/Q2/Q3 resolved. Draft 3 — three discrepancy rulings. Draft 4 — threshold rule window optionality (Ruling 9.3). Draft 5 — bidirectional map blocks (Ruling 9.4). Draft 6 — cross-domain constraint inheritance (Ruling 9.5). Draft 7 — persistent violation counters (Ruling 9.6). Draft 8 — arbiter mandatory + flag-as-always-additive (Ruling 9.7). Draft 9 — semantic similarity map matching (Ruling 9.8). Draft 10 — standing bound rule (Ruling 9.9). |

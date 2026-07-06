@@ -1015,6 +1015,76 @@ class TestFlagPreservation(unittest.TestCase):
         self.assertFalse(c.get("flag_preserved", False))
 
 
+class TestBoundRule(unittest.TestCase):
+    """Ruling 9.9 — standing one-sided bound rule (Form 7)."""
+
+    def _bound_ir(self, op="<", bound=0.8, field="confidence_score"):
+        ref = f"TestAgent.{field}"
+        return _base_ir(
+            constraints={
+                "BoundCheck": {
+                    "priority":     "high",
+                    "rule":         {"kind": "bound_rule", "ref": ref, "op": op, "value": bound},
+                    "on_violation": ["flag"],
+                    "escalation":   [],
+                    "decay_check":  None,
+                }
+            },
+            enforce_list=["BoundCheck"],
+        )
+
+    def test_less_than_satisfied(self):
+        trace, _, exit_code = resolve(self._bound_ir("<", 0.8), _base_state({"confidence_score": 0.65}))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(trace["constraints"][0]["status"], "satisfied")
+
+    def test_less_than_violated(self):
+        _, _, exit_code = resolve(self._bound_ir("<", 0.8), _base_state({"confidence_score": 0.91}))
+        self.assertEqual(exit_code, 1)
+
+    def test_less_than_eq_satisfied_at_boundary(self):
+        _, _, exit_code = resolve(self._bound_ir("<=", 0.8), _base_state({"confidence_score": 0.8}))
+        self.assertEqual(exit_code, 0)
+
+    def test_less_than_eq_violated_above_boundary(self):
+        _, _, exit_code = resolve(self._bound_ir("<=", 0.8), _base_state({"confidence_score": 0.81}))
+        self.assertEqual(exit_code, 1)
+
+    def test_greater_than_satisfied(self):
+        _, _, exit_code = resolve(self._bound_ir(">", 0.2), _base_state({"confidence_score": 0.5}))
+        self.assertEqual(exit_code, 0)
+
+    def test_greater_than_violated(self):
+        _, _, exit_code = resolve(self._bound_ir(">", 0.2), _base_state({"confidence_score": 0.1}))
+        self.assertEqual(exit_code, 1)
+
+    def test_greater_than_eq_satisfied_at_boundary(self):
+        _, _, exit_code = resolve(self._bound_ir(">=", 0.2), _base_state({"confidence_score": 0.2}))
+        self.assertEqual(exit_code, 0)
+
+    def test_trace_evaluation_line_satisfied(self):
+        trace, _, _ = resolve(self._bound_ir("<", 0.8), _base_state({"confidence_score": 0.65}))
+        evaluation = trace["constraints"][0]["evaluation"]
+        self.assertIn("satisfies", evaluation)
+        self.assertIn("<", evaluation)
+        self.assertIn("0.8", evaluation)
+
+    def test_trace_evaluation_line_violated(self):
+        trace, _, _ = resolve(self._bound_ir("<", 0.8), _base_state({"confidence_score": 0.91}))
+        evaluation = trace["constraints"][0]["evaluation"]
+        self.assertIn("violates", evaluation)
+        self.assertIn("<", evaluation)
+
+    def test_rule_kind_in_trace(self):
+        trace, _, _ = resolve(self._bound_ir(), _base_state())
+        self.assertEqual(trace["constraints"][0]["rule_kind"], "bound_rule")
+
+    def test_suspended_when_field_missing(self):
+        trace, _, exit_code = resolve(self._bound_ir("<", 0.8, field="missing_field"), _base_state())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(trace["constraints"][0]["status"], "suspended")
+
+
 class TestSemanticMapMatching(unittest.TestCase):
     """Ruling 9.8 — semantic similarity map matching in contradiction detection."""
 

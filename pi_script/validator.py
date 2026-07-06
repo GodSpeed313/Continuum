@@ -184,6 +184,17 @@ def _extract_rule(rule_expr_node: Tree) -> dict[str, Any]:
                 "before":  before,
             }
 
+    if kind == "bound_rule":
+        ref = _first_child_tree(inner, "state_ref")
+        if ref is None:
+            return {"kind": "unknown"}
+        return {
+            "kind":  "bound_rule",
+            "ref":   _state_ref_str(ref),
+            "op":    str(inner.children[1]),
+            "value": float(str(inner.children[2])),
+        }
+
     return {"kind": "unknown"}
 
 
@@ -407,6 +418,7 @@ class PiValidator:
         self._check_membership_rules_have_maps()
         self._check_enforce_refs_declared()
         self._check_arbiter_required()
+        self._check_bound_rule_operators()
 
         return (len(self.errors) == 0), self.errors, self.ir
 
@@ -599,6 +611,29 @@ class PiValidator:
                 "Arbiter block is required in the primary domain. "
                 "Add: arbiter <Name> { acceptable_evolution: [] ... }"
             )
+
+    def _check_bound_rule_operators(self):
+        _VALID_BOUND_OPS = {"<", "<=", ">", ">="}
+        for cname, cdata in self.ir["constraints"].items():
+            rule = cdata.get("rule") or {}
+            if rule.get("kind") != "bound_rule":
+                continue
+            op = rule.get("op", "")
+            if op == "==":
+                self.errors.append(
+                    f"Constraint '{cname}': bound_rule does not support '=='. "
+                    "Use 'must equal <value>' (Form 2) for equality checks."
+                )
+            elif op == "!=":
+                self.errors.append(
+                    f"Constraint '{cname}': bound_rule does not support '!='. "
+                    "Deferred to a future ruling."
+                )
+            elif op not in _VALID_BOUND_OPS:
+                self.errors.append(
+                    f"Constraint '{cname}': bound_rule operator '{op}' is not valid. "
+                    f"Use one of: {sorted(_VALID_BOUND_OPS)}."
+                )
 
 
 # ── Private helper ────────────────────────────────────────────────────────────
