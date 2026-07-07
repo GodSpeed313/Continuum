@@ -1,0 +1,77 @@
+// Pi Script v0.2 — Quantization Governance Example
+// Domain: GPU/ML post-training quantization (PTQ) stability
+// Adapted from "Version 1 Master Spec Report: Quantization Governance &
+// Pi Script Integration" — corrected to valid Pi Script v0.2 syntax:
+//   - HardwareIntegrity used "must remain below 0.8", which was not a
+//     valid rule form until Ruling 9.9 added bound_rule (Form 7); now
+//     expressed as "must remain < 0.8".
+//   - Removed "monitor:" fields from constraint blocks — the grammar has
+//     no such constraint_item; the target state is already carried by
+//     the rule's state_ref.
+//   - Removed "state" keyword prefix from entity fields (not part of the
+//     state_field grammar) and "every" from decay_check durations (not
+//     part of the duration grammar).
+//   - Added the entity prefix to GranularityShift's state_ref
+//     (bare `outlier_intensity` isn't a valid state_ref — needs
+//     `QuantizationEngine.outlier_intensity`).
+//   - Added the arbiter block the source spec only described in prose;
+//     Ruling 9.7 makes an arbiter mandatory for validation.
+// Demonstrates Pi Script applied to a domain outside its original scope
+// (repo/session governance) — proves the grammar is domain-general.
+
+domain quantization_governance {
+    audit_interval: 24 hours
+    tiebreaker:     timestamp_asc
+}
+
+entity QuantizationEngine {
+    precision_loss:        range(0.0 .. 1.0)
+    signal_quality:        text
+    memory_latency_ratio:  range(0.0 .. 1.0)
+    outlier_intensity:     integer
+}
+
+map SignalQualityMap {
+    target:   QuantizationEngine.signal_quality
+    maps_to:  "nominal"
+    triggers: ["nominal", "stable", "21.96 dB"]
+}
+
+map SignalQualityUnstable {
+    target:   QuantizationEngine.signal_quality
+    maps_to:  "unstable"
+    triggers: ["unstable", "degraded", "low fidelity"]
+}
+
+// Form 7 (Ruling 9.9): one-sided point-in-time bound.
+constraint HardwareIntegrity {
+    priority:     high
+    rule:         QuantizationEngine.memory_latency_ratio must remain < 0.8
+    on_violation: rollback
+    decay_check:  1 hour
+}
+
+constraint SignalStability {
+    priority:     critical
+    rule:         QuantizationEngine.signal_quality must equal "nominal"
+    on_violation: freeze + rollback
+    decay_check:  24 hours
+}
+
+constraint GranularityShift {
+    priority:     medium
+    rule:         if QuantizationEngine.outlier_intensity > 10 then require granularity_increase before next_update
+    on_violation: warn
+    decay_check:  6 hours
+}
+
+enforce {
+    entity:      QuantizationEngine
+    constraints: [HardwareIntegrity, SignalStability, GranularityShift]
+}
+
+arbiter QuantizationArbiter {
+    acceptable_evolution:  ["weight_adjustment_within_bounds"]
+    never_acceptable:      ["constraint_removal", "constraint_inversion", "priority_escalation_above_critical"]
+    requires_human_review: ["new_constraint_introduction", "safety_critical_domain_changes"]
+}
