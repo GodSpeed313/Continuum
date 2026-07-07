@@ -2,3 +2,4 @@ lark>=1.1.7
 pytest>=7.0.0
 sentence-transformers>=2.7.0
 mcp>=1.2.0
+filelock>=3.13.0
