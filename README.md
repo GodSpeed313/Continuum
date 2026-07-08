@@ -278,9 +278,11 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M4 — Resolver core + RESOLUTION TRACEs | ✅ Complete — 89/89 tests |
 | M5 — Dogfood (23-day active run, 6+ violations across two independent systems) | ✅ Complete |
 | Rift v0.1 — Intent Layer (grammar, parser, validator, compiler) | ✅ Complete — 33/33 tests |
-| M6 — Publish (paper + public playground) | 🔄 In progress |
+| M6 — Publish (paper + public playground) | ✅ Complete — ConsistencyGuard activated, Jupyter playground live |
+| v0.2 — Rulings 9.4–9.9 (bidirectional maps, cross-domain inheritance, violation counters, arbiter mandatory, semantic map matching, standing bound rule) | ✅ Complete |
+| MCP server, governance dashboard, persistence/write-queue | ✅ Complete |
 
-122 tests passing across parser, validator, trace builder, resolver, and Rift pipeline.
+240 tests passing across parser, validator, trace builder, resolver, Rift pipeline, and v0.2 rulings.
 
 ---
 
@@ -345,9 +347,9 @@ continuum/
 
 Scope discipline is a feature. These are deferred on purpose, not forgotten:
 
-- Bidirectional map blocks (Pi Script v0.2)
-- Semantic similarity map matching (Pi Script v0.2)
-- Cross-domain constraint inheritance (Pi Script v0.2)
+- ~~Bidirectional map blocks~~ — shipped, Pi Script v0.2 Ruling 9.4
+- ~~Semantic similarity map matching~~ — shipped, Pi Script v0.2 Ruling 9.8
+- ~~Cross-domain constraint inheritance~~ — shipped, Pi Script v0.2 Ruling 9.5
 - Adaptive constraints that evolve within bounds (Pi Script v0.3)
 - Rift Semantic Layer — `agent`, `state`, `behavior evolves` constructs (Rift v0.2)
 - Rift dynamic constraint generation — runtime re-evaluation without recompile (Rift v0.2)
