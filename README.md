@@ -254,6 +254,34 @@ The full policy is in [`es/es_governance.pi`](es/es_governance.pi). The adapter 
 
 ---
 
+## Using it as an MCP tool
+
+`mcp_server.py` exposes the resolver pipeline as a single MCP tool, `check_governance`, so an agent can check whether a state *would* violate policy before acting, instead of only finding out after the fact from the cron governance watcher.
+
+```bash
+python mcp_server.py
+```
+
+Wire it into an MCP client (e.g. Claude Code) with a stdio transport pointing at this file. The tool accepts either a native `.pi` policy or a `.rift` program (compiled to Pi Script automatically first):
+
+```python
+check_governance(
+    source=open("examples/tasks.pi").read(),
+    state={"trigger_type": "event", "entity": "TaskAgent", "entity_state": {...}},
+    source_type="pi",       # or "rift"
+)
+```
+
+Pass `persist=True` with a `state_path` to make a system's governance durable across calls: prior `violation_counts` are loaded and carried forward, the updated state is written back atomically, and a trace file is saved to a sibling `traces/` directory on violation. Concurrent callers hitting the same `state_path` are protected by real cross-process file locking (`filelock`), not just an in-process one — the MCP server runs as a separate OS process per client.
+
+```bash
+python dashboard.py
+```
+
+`dashboard.py` is a small Starlette web UI for browsing what `persist=True` accumulates — it scans for `state.json` files and their sibling `traces/` directories and serves a system list, per-system trace listing, and RESOLUTION TRACE rendering in the browser. No storage migration: it reads the same flat-file convention `log_session.py` and `check_governance(persist=True)` already write.
+
+---
+
 ## How it differs from output filters
 
 Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi Script governs **state over time** — it evaluates whether a system's observable behavior has drifted from declared constraints across a time window, across a session, across multiple responses. Different problem.
@@ -300,7 +328,8 @@ continuum/
 │   └── baseline.json                 # Committed mapping hash — schema governance source of truth
 ├── examples/
 │   ├── tasks.pi                      # Working example — AI task agent governance
-│   └── test_happy.pi                 # Happy path file exercising all rule forms
+│   ├── test_happy.pi                 # Happy path file exercising all rule forms
+│   └── quantization_governance.pi    # GPU/ML quantization domain example (Ruling 9.9 bound_rule)
 ├── m5/
 │   ├── dogfood.pi                    # M5 dogfood policy — governs Continuum AI assistant usage
 │   ├── ir.json                       # Compiled IR for dogfood.pi
@@ -328,6 +357,8 @@ continuum/
 │   └── test_rift.py                  # Rift v0.1 — 33 tests
 ├── log_session.py                    # M5 daily runner — resolves dogfood.pi against current state
 ├── pi_monitor.py                     # Pi device health monitor — posts resolver status to Discord
+├── mcp_server.py                     # MCP server exposing check_governance as an agent-callable tool
+├── dashboard.py                      # Starlette web UI for browsing persisted state + traces
 ├── state.json                        # Example state snapshot (locked schema)
 └── requirements.txt
 ```
