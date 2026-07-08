@@ -38,4 +38,15 @@ for long-term robustness.
 - [x] Ruling 9.6 — persistent violation counters (PR #12)
 - [x] Ruling 9.7 — arbiter mandatory + flag-as-always-additive (PR #13)
 - [x] Ruling 9.8 — semantic similarity map matching (PR #14, #15)
-- [ ] Ruling 9.9 — standing bound rule / Form 7 (PR #16, open)
+- [x] Ruling 9.9 — standing bound rule / Form 7 (PR #16)
+
+Pending rulings: none. Spec doc (`docs/pi_script_v02_draft5.md`, Draft 10) confirms.
+
+## Tooling / integration (post-9.9)
+
+- [x] MCP server exposing governance checks as a tool (PR #18)
+- [x] Persistence + cross-process write-queue for `check_governance` (PR #19)
+- [x] Read-only governance dashboard (PR #20)
+- [x] Quantization-governance domain example — corrected to valid v0.2 syntax, proves grammar is domain-general (PR #21)
+
+240/240 tests passing.
