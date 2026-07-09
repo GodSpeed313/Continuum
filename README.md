@@ -69,14 +69,14 @@ Continuum is a three-layer governance stack for AI systems:
 
 **Pi Script** is a compiled governance language. You declare constraints in a formal grammar — range bounds, thresholds, equality checks, conditional triggers, contradiction detection — and a resolver evaluates them against live state snapshots, applies priority resolution when multiple constraints fire simultaneously, and emits a structured RESOLUTION TRACE every time.
 
-**Rift** is the Intent Layer above Pi Script. You write what you mean in plain language — "I shelved this project", "freeze this permanently" — and Rift compiles those declarations into Pi Script constraints automatically. No hand-written Pi Script required.
+**Rift** is the Intent Layer above Pi Script. You write what you mean in plain language — "I shelved this project", "freeze this permanently" — and Rift compiles those declarations into Pi Script constraints automatically. No hand-written Pi Script required. At runtime, Rift also resolves declarations it has never seen verbatim: an exact trigger match when one exists, and a semantic fallback when one doesn't — with every match decision traced and scored, never guessed silently.
 
 The full loop:
 
 ```
 User declares intent in natural language
         ↓
-Rift maps declaration → machine state (map blocks)
+Rift maps declaration → machine state (exact or semantic match)
         ↓
 Rift compiles → Pi Script constraint set (.pi file)
         ↓
@@ -162,7 +162,8 @@ enforce {
 ```
 
 The full working example with all six rule forms is in [`examples/tasks.pi`](examples/tasks.pi).  
-The grammar specification is in [`docs/pi_script_v01_draft3.md`](docs/pi_script_v01_draft3.md) (Draft 4).
+The v0.1 grammar specification is in [`docs/pi_script_v01_draft3.md`](docs/pi_script_v01_draft3.md) (Draft 4).  
+The v0.2 rulings spec (9.4–9.9) is in [`docs/pi_script_v02_draft5.md`](docs/pi_script_v02_draft5.md).
 
 ---
 
@@ -214,6 +215,52 @@ constraint ActiveProjectGuard {
 ```
 
 The full canonical example is in [`rift/shelved_projects.rift`](rift/shelved_projects.rift). The generated output is in [`rift/shelved_projects.pi`](rift/shelved_projects.pi).
+
+---
+
+## Resolving declarations at runtime — Rift v0.2
+
+Compilation is no longer the only entry point. People don't repeat their trigger phrases verbatim — "let's pick Veritas back up" has to mean the same thing as "let's revisit Veritas". Rift v0.2 adds a two-tier declaration matcher and a session runtime:
+
+```python
+from rift.session import RiftSession
+
+session = RiftSession.from_rift_file("rift/shelved_projects.rift")
+
+# Tier 1 — exact trigger match. Extracts the capture, and the session
+# remembers "Veritas" as a known entity value.
+session.resolve("I shelved Veritas")
+
+# No exact trigger matches this phrasing — Tier 2 semantic fallback,
+# masked by the value the session learned above.
+r = session.resolve("let's pick Veritas back up")
+print(r.trace)
+```
+
+```
+RIFT MATCH TRACE
+├── Declaration : "let's pick Veritas back up"
+├── Tier        : semantic
+├── Threshold   : 0.3   Margin: 0.05
+├── Candidates  :
+│   ├── "let's revisit project"   score: 0.6831   ← selected
+│   ├── "I shelved project"   score: 0.5168
+│   └── "I'm done with project"   score: 0.5127
+└── ✓ MATCHED → project.state: active
+RIFT SESSION
+├── Known values : "Veritas"
+└── Accumulated  : (none — semantic tier extracts no captures)
+```
+
+How it works, and what it refuses to do:
+
+- **Exact first.** Tier 1 compiles each map pattern to an anchored, case-insensitive regex and extracts capture values. No embedding model is loaded unless Tier 1 misses.
+- **Semantic fallback.** Tier 2 embeds the declaration (all-MiniLM-L6-v2) and ranks maps by cosine similarity — its own model instance, fully independent of Pi Script's Ruling 9.8 matcher, per the layer boundaries. Two permanent tests enforce that `rift/` never imports from `pi_script/`.
+- **Ambiguity is a defined no-match, never a guess.** A winning score below the threshold, or a top-two gap inside the ambiguity margin, resolves to no match with the failing condition named in the trace.
+- **The session learns from what it confirms.** Entity values extracted by exact matches accumulate (in-memory, per-session) and mask later semantic probes — the same declaration that scores 0.31 on a cold session scores 0.68 with a learned value. The semantic tier identifies *which map* a declaration means; capture values only ever come from the exact tier.
+- **Every score is in the trace.** A similarity decision that can't be inspected is a black box; the trace is the non-negotiable window into it.
+
+Specs: [Ruling 3.1 — semantic declaration matching](docs/rift_v02_ruling_3_1_semantic_declaration_matching.md) and [Ruling 3.2 — known-values accumulation](docs/rift_v02_ruling_3_2_known_values_accumulation.md), with implementation notes alongside each.
 
 ---
 
@@ -307,10 +354,11 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M5 — Dogfood (23-day active run, 6+ violations across two independent systems) | ✅ Complete |
 | Rift v0.1 — Intent Layer (grammar, parser, validator, compiler) | ✅ Complete — 33/33 tests |
 | M6 — Publish (paper + public playground) | ✅ Complete — ConsistencyGuard activated, Jupyter playground live |
-| v0.2 — Rulings 9.4–9.9 (bidirectional maps, cross-domain inheritance, violation counters, arbiter mandatory, semantic map matching, standing bound rule) | ✅ Complete |
+| Pi Script v0.2 — Rulings 9.4–9.9 (bidirectional maps, cross-domain inheritance, violation counters, arbiter mandatory, semantic map matching, standing bound rule) | ✅ Complete |
 | MCP server, governance dashboard, persistence/write-queue | ✅ Complete |
+| Rift v0.2 — Rulings 3.1 + 3.2 (semantic declaration matching, known-values accumulation via `RiftSession`) | ✅ Complete — 71/71 Rift tests |
 
-240 tests passing across parser, validator, trace builder, resolver, Rift pipeline, and v0.2 rulings.
+**278 tests passing** across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, and the v0.2 rulings.
 
 ---
 
@@ -319,9 +367,14 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 ```
 continuum/
 ├── docs/
-│   ├── pi_script_v01_draft3.md       # Full grammar specification (Draft 4)
+│   ├── pi_script_v01_draft3.md       # Pi Script v0.1 grammar specification (Draft 4)
+│   ├── pi_script_v02_draft5.md       # Pi Script v0.2 rulings spec — 9.4 through 9.9
 │   ├── m6_paper_draft1.md            # M6 publication draft — M5 findings
-│   └── continuum_layer_boundaries.md # Layer boundary reference — what belongs where
+│   ├── continuum_layer_boundaries.md # Layer boundary reference — what belongs where
+│   ├── rift_v02_ruling_3_1_semantic_declaration_matching.md   # Rift Ruling 3.1 — two-tier matcher spec
+│   ├── rift_v02_semantic_matching_note.md                     # Ruling 3.1 implementation note
+│   ├── rift_v02_ruling_3_2_known_values_accumulation.md       # Rift Ruling 3.2 — session/accumulation spec
+│   └── rift_v02_known_values_accumulation_note.md             # Ruling 3.2 implementation note
 ├── es/
 │   ├── es_governance.pi              # Pi Script policy for Elasticsearch governance
 │   ├── es_adapter.py                 # State adapter — queries ES, writes state.json
@@ -346,17 +399,25 @@ continuum/
 │   ├── parser.py                     # Earley parser wrapper
 │   ├── validator.py                  # Semantic validator — extracts intent IR
 │   ├── compiler.py                   # Pi Script emitter — generates .pi from .rift
+│   ├── matcher.py                    # Two-tier declaration matcher (Ruling 3.1)
+│   ├── session.py                    # Declaration-resolution runtime + known-values accumulation (Ruling 3.2)
 │   ├── shelved_projects.rift         # Canonical test program
 │   └── shelved_projects.pi           # Generated Pi Script output
 ├── rift_design_note_draft2.md        # Rift (Layer 3) design — v0.1 intent layer spec
 ├── tests/
 │   ├── test_parser.py                # M1 + M3 — 9 tests
-│   ├── test_validator.py             # M2 — 12 tests
+│   ├── test_validator.py             # M2 + v0.2 rulings — 45 tests
 │   ├── test_trace.py                 # trace.py — 31 tests
-│   ├── test_resolver.py              # M4 — 38 tests
-│   └── test_rift.py                  # Rift v0.1 — 33 tests
+│   ├── test_resolver.py              # M4 + v0.2 rulings — 98 tests
+│   ├── test_rift.py                  # Rift v0.1 + v0.2 — 71 tests
+│   ├── test_mcp_server.py            # check_governance tool — 10 tests
+│   ├── test_dashboard.py             # dashboard UI — 9 tests
+│   └── test_quantization_governance_example.py  # Ruling 9.9 example — 5 tests
+├── quickstart.py                     # One-command demo — validate, resolve, print the trace
+├── compile_pi.py                     # Helper — validate a .pi file and write its IR to JSON
 ├── log_session.py                    # M5 daily runner — resolves dogfood.pi against current state
-├── pi_monitor.py                     # Pi device health monitor — posts resolver status to Discord
+├── pi_monitor.py                     # Device-health monitor template — NOT the deployed watcher
+│                                     #   (live monitoring runs as a GitHub Actions cron workflow)
 ├── mcp_server.py                     # MCP server exposing check_governance as an agent-callable tool
 ├── dashboard.py                      # Starlette web UI for browsing persisted state + traces
 ├── state.json                        # Example state snapshot (locked schema)
@@ -381,12 +442,14 @@ Scope discipline is a feature. These are deferred on purpose, not forgotten:
 - ~~Bidirectional map blocks~~ — shipped, Pi Script v0.2 Ruling 9.4
 - ~~Semantic similarity map matching~~ — shipped, Pi Script v0.2 Ruling 9.8
 - ~~Cross-domain constraint inheritance~~ — shipped, Pi Script v0.2 Ruling 9.5
+- ~~Natural language constraint authoring — NLP-based declaration matching~~ — shipped, Rift v0.2 Rulings 3.1 + 3.2
 - Adaptive constraints that evolve within bounds (Pi Script v0.3)
-- Rift Semantic Layer — `agent`, `state`, `behavior evolves` constructs (Rift v0.2)
-- Rift dynamic constraint generation — runtime re-evaluation without recompile (Rift v0.2)
+- Rift Semantic Layer — `agent`, `state`, `behavior evolves` constructs (Rift v0.3)
+- Rift dynamic constraint generation — runtime re-evaluation without recompile (blocked on the multi-phase resolver, a Layer 2 prerequisite that doesn't exist yet)
 - Rift Execution Layer — `@gpu`, `@quantum`, `@realtime` annotations (Rift v0.3)
-- Natural language constraint authoring — NLP-based map matching (Rift v0.2+)
+- Persistence of accumulated known values across sessions (deferred by Ruling 3.2 §3.2.3 — a future ruling when a use case demands it)
+- Cross-layer integration of any kind (v0.4+ per `docs/continuum_layer_boundaries.md`)
 
 ---
 
-Continuum v0.1 — Pi Script Draft 4 + Rift Intent Layer — May 2026
+*Continuum — Pi Script v0.2 + Rift v0.2 — July 2026*
