@@ -1,5 +1,6 @@
 """Rift v0.1 tests — parser, validator, compiler.
-Rift v0.2 tests — declaration matcher (Rift Ruling 3.1)."""
+Rift v0.2 tests — declaration matcher (Rift Ruling 3.1),
+declaration-resolution session (Rift Ruling 3.2)."""
 
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from rift.parser import parse_string, parse_file
 from rift.validator import RiftValidator, validate_file
 from rift.compiler import RiftCompiler
 from rift.matcher import MatchResult, match_declaration, render_match
+from rift.session import Resolution, RiftSession
 
 RIFT_DIR          = Path(__file__).parent.parent / "rift"
 SHELVED_RIFT      = RIFT_DIR / "shelved_projects.rift"
@@ -597,6 +599,189 @@ class TestRiftMatcherIndependence:
         import subprocess, sys
         code = (
             "import rift.matcher, sys; "
+            "loaded = [m for m in sys.modules if m.startswith('pi_script')]; "
+            "assert loaded == [], f'pi_script modules loaded: {loaded}'; "
+            "print('clean')"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(RIFT_DIR.parent), capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "clean" in proc.stdout
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Session tests — Rift Ruling 3.2 (Known-Values Accumulation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+SEMANTIC_SHELVE = {"I shelved project": 0.9, "let's revisit project": 0.4,
+                   "I'm done with project": 0.2}
+
+
+class TestRiftSession:
+    def test_tier1_captures_accumulate(self):
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I shelved Veritas")
+        assert isinstance(r, Resolution)
+        assert r.result.matched and r.result.tier == "exact"
+        assert r.newly_accumulated == ("Veritas",)
+        assert s.known_values == ("Veritas",)
+
+    def test_accumulated_values_mask_later_calls(self, monkeypatch):
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I shelved Veritas")
+        calls = []
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE, calls))
+        r = s.resolve("I mothballed Veritas")
+        assert r.result.matched and r.result.tier == "semantic"
+        assert len(calls) == 1
+        assert "I mothballed project" in calls[0]
+        assert all("Veritas" not in t for t in calls[0])
+        assert r.known_values_used == ("Veritas",)
+
+    def test_semantic_match_does_not_accumulate(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE))
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I put it on ice")
+        assert r.result.matched and r.result.tier == "semantic"
+        assert r.newly_accumulated == ()
+        assert s.known_values == ()
+
+    def test_no_match_does_not_accumulate(self, monkeypatch):
+        low = {"I shelved project": 0.05, "let's revisit project": 0.02,
+               "I'm done with project": 0.01}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(low))
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("what's the weather like")
+        assert not r.result.matched
+        assert r.newly_accumulated == ()
+        assert s.known_values == ()
+
+    def test_caller_values_used_for_call(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE, calls))
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I mothballed Veritas", known_values=["Veritas"])
+        assert r.known_values_used == ("Veritas",)
+        assert "I mothballed project" in calls[0]
+        assert all("Veritas" not in t for t in calls[0])
+
+    def test_caller_values_not_persisted(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE))
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I mothballed Veritas", known_values=["Veritas"])
+        assert s.known_values == ()
+
+    def test_dedup_case_insensitive(self):
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I shelved Veritas")
+        r = s.resolve("let's revisit VERITAS")
+        assert r.result.tier == "exact"
+        assert r.newly_accumulated == ()
+        assert s.known_values == ("Veritas",)
+
+    def test_union_accumulated_form_wins(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE))
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I shelved Veritas")
+        r = s.resolve("I mothballed it", known_values=["VERITAS"])
+        assert r.known_values_used == ("Veritas",)
+
+    def test_masking_order_longest_first(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE))
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I shelved Veritas")
+        r = s.resolve("I mothballed it", known_values=["Veritas 2"])
+        assert r.known_values_used == ("Veritas 2", "Veritas")
+
+    def test_empty_accumulation_baseline(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(SEMANTIC_SHELVE, calls))
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I mothballed Veritas")
+        # probe is the raw declaration — no masking without known values
+        assert "I mothballed Veritas" in calls[0]
+        assert r.known_values_used == ()
+        assert r.result == match_declaration("I mothballed Veritas", MATCHER_MAPS)
+
+    def test_degraded_model_visible_not_crash(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", lambda texts: None)
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I put it on ice")
+        assert not r.result.matched
+        assert r.result.degraded is True
+        assert "DEGRADED" in r.trace
+        assert r.newly_accumulated == ()
+        assert s.known_values == ()
+
+    def test_known_values_property_readonly(self):
+        s = RiftSession(MATCHER_MAPS)
+        s.resolve("I shelved Veritas")
+        kv = s.known_values
+        assert isinstance(kv, tuple)
+        kv += ("Intruder",)
+        assert s.known_values == ("Veritas",)
+        with pytest.raises(AttributeError):
+            s.known_values = ("Intruder",)
+
+    def test_trace_shows_session_block(self):
+        s = RiftSession(MATCHER_MAPS)
+        r = s.resolve("I shelved Veritas")
+        assert "RIFT MATCH TRACE" in r.trace
+        assert "RIFT SESSION" in r.trace
+        assert "Known values : (none)" in r.trace
+        assert '[project] = "Veritas"' in r.trace
+
+    def test_from_rift_file_constructor(self):
+        s = RiftSession.from_rift_file(str(SHELVED_RIFT))
+        r = s.resolve("I shelved Veritas")
+        assert r.result.matched and r.result.tier == "exact"
+        assert s.known_values == ("Veritas",)
+
+    def test_from_rift_file_invalid_raises(self, tmp_path):
+        bad = tmp_path / "invalid.rift"
+        bad.write_text("this is not a rift program {{{", encoding="utf-8")
+        with pytest.raises(ValueError, match="failed validation"):
+            RiftSession.from_rift_file(str(bad))
+
+    def test_end_to_end_accumulation_flow(self, monkeypatch):
+        s = RiftSession(MATCHER_MAPS)
+
+        # 1. Tier 1 exact match populates the known-values set
+        r1 = s.resolve("I shelved Veritas")
+        assert r1.result.tier == "exact"
+        assert r1.newly_accumulated == ("Veritas",)
+        assert "RIFT MATCH TRACE" in r1.trace
+        assert '[project] = "Veritas"' in r1.trace
+
+        # 2. Tier 2 semantic match benefits from the accumulated masking
+        calls = []
+        scores = {"let's revisit project": 0.9, "I shelved project": 0.4,
+                  "I'm done with project": 0.2}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(scores, calls))
+        r2 = s.resolve("time to pick Veritas back up")
+        assert r2.result.matched and r2.result.tier == "semantic"
+        assert r2.result.map["state_value"] == "active"
+        assert "time to pick project back up" in calls[0]
+        assert all("Veritas" not in t for t in calls[0])
+        assert r2.known_values_used == ("Veritas",)
+        assert r2.newly_accumulated == ()
+        assert 'Known values : "Veritas"' in r2.trace
+        assert "semantic" in r2.trace
+
+
+class TestRiftSessionIndependence:
+    """Rift Ruling 3.2 §3.2.4 — hard layer boundary: no cross-layer sourcing."""
+
+    def test_no_pi_script_reference_in_source(self):
+        source = (RIFT_DIR / "session.py").read_text(encoding="utf-8")
+        assert "pi_script" not in source
+
+    def test_import_does_not_load_pi_script(self):
+        import subprocess, sys
+        code = (
+            "import rift.session, sys; "
             "loaded = [m for m in sys.modules if m.startswith('pi_script')]; "
             "assert loaded == [], f'pi_script modules loaded: {loaded}'; "
             "print('clean')"
