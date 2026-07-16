@@ -1,8 +1,9 @@
 # Letta / Jetta agent session data
 .letta/
 
-# Claude local settings
-.claude/
+# Claude local settings (skills are tracked; everything else local)
+.claude/*
+!.claude/skills/
 
 # Python
 __pycache__/
