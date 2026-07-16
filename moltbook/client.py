@@ -32,7 +32,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from moltbook.detector import scan_content, scan_links, LinkFinding
+from moltbook.detector import scan_content, scan_links, scan_identity, LinkFinding
 
 _DEFAULT_ALLOWLIST = Path(__file__).with_name("link_allowlist.json")
 
@@ -43,6 +43,10 @@ class KeyLeakBlocked(Exception):
 
 class LinkBlocked(Exception):
     """Raised by the pre-send gate when outbound content surfaces a novel (un-provenanced) link."""
+
+
+class IdentityDriftBlocked(Exception):
+    """Raised by the pre-send gate when outbound content contradicts the session-start identity."""
 
 
 def load_allowlist(path: str | Path | None = None) -> tuple[str, ...]:
@@ -81,15 +85,25 @@ class MoltbookClient:
         transport: Callable[..., dict[str, Any]] | None = None,
         session_id: str = "moltbook-session",
         allowed_hosts: tuple[str, ...] | None = None,
+        declared_handle: str = "",
+        declared_name: str | None = None,
+        declared_roles: tuple[str, ...] = (),
     ) -> None:
         # Key isolation: private, resolved from the same runtime secret source as auth.
         self._api_key = api_key if api_key is not None else os.environ.get("MOLTBOOK_API_KEY")
         self._transport = transport or _no_transport
         self.session_id = session_id
         # Latches: once set (even on a blocked attempt), stay set until the session is
-        # explicitly reset. Drive CredentialIntegrity / LinkRestriction respectively.
+        # explicitly reset. Drive CredentialIntegrity / LinkRestriction / IdentityIntegrity.
         self.credential_exposed = False
         self.link_violation = False
+        self.identity_drift = False
+        # Declared identity captured ONCE at session start, held immutable for the session
+        # (IdentityIntegrity §6/§7). A fresh client == a fresh session == a legitimate reset,
+        # so a between-session identity change is not a within-session violation (ruling §2).
+        self._declared_handle = declared_handle
+        self._declared_name = declared_name
+        self._declared_roles = tuple(declared_roles)
         # Immutable, human-owned allowlist (ruling §4, Q1). tuple = no mutation surface.
         self._allowed_hosts: tuple[str, ...] = (
             allowed_hosts if allowed_hosts is not None else load_allowlist()
@@ -151,6 +165,19 @@ class MoltbookClient:
                 f"source or allowlist: {', '.join(novel_hosts)}"
             )
 
+        # Gate 3 — within-session identity consistency (mechanical only, ruling §6).
+        ident = scan_identity(
+            content,
+            declared_handle=self._declared_handle,
+            declared_name=self._declared_name,
+            declared_roles=self._declared_roles,
+        )
+        if ident.is_contradiction:
+            self.identity_drift = True
+            raise IdentityDriftBlocked(
+                f"{action} blocked by pre-send gate: identity drift ({ident.kind}) — {ident.detail}"
+            )
+
         return self._transport(
             action=action,
             content=content,
@@ -169,6 +196,7 @@ class MoltbookClient:
             "entity_state": {
                 "credential_exposed": self.credential_exposed,
                 "link_violation": self.link_violation,
+                "identity_drift": self.identity_drift,
                 "session_id": self.session_id,
             },
             "response_history": [],

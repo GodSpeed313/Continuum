@@ -66,8 +66,10 @@ class TestPolicy:
             "value": False,
         }
         assert c["on_violation"] == ["freeze", "escalate"]
-        # LinkRestriction joined the enforce block (docs/m7_link_restriction_ruling.md).
-        assert ir["enforce"] == {"MoltbookSession": ["CredentialIntegrity", "LinkRestriction"]}
+        # LinkRestriction + IdentityIntegrity joined the enforce block (M7 rulings).
+        assert ir["enforce"] == {
+            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"]
+        }
 
 
 # ── Resolver: the required test pair (ruling §7) ─────────────────────────────

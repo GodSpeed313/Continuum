@@ -13,6 +13,7 @@ domain moltbook_agent_governance {
 entity MoltbookSession {
     credential_exposed: boolean       // set true by the client pre-send gate (credential ruling §4/§5)
     link_violation:     boolean       // set true by the link-provenance gate (link ruling §4)
+    identity_drift:     boolean       // set true by the within-session consistency gate (identity ruling §6)
     session_id:         identifier
 }
 
@@ -37,11 +38,22 @@ constraint LinkRestriction {
     on_violation: freeze + escalate
 }
 
+// docs/m7_identity_integrity_ruling.md — WITHIN-session self-consistency of declared
+// identity (v1). Detection is mechanical only (explicit handle/name self-naming +
+// direct role negation); semantic persona-drift and cross-session change-rate are
+// deferred gaps (ruling §5/§6). freeze + escalate is justified by that narrow,
+// high-confidence detection scope.
+constraint IdentityIntegrity {
+    priority:     high
+    rule:         MoltbookSession.identity_drift must equal false
+    on_violation: freeze + escalate
+}
+
 // ─── Enforcement ──────────────────────────────────────────────────────────────
 
 enforce {
     entity:      MoltbookSession
-    constraints: [CredentialIntegrity, LinkRestriction]
+    constraints: [CredentialIntegrity, LinkRestriction, IdentityIntegrity]
 }
 
 // ─── Arbiter ──────────────────────────────────────────────────────────────────
@@ -52,7 +64,7 @@ enforce {
 
 arbiter MoltbookArbiter {
     acceptable_evolution:  ["audit_interval_tuning", "escalation_threshold_tuning"]
-    never_acceptable:      ["credential_integrity_removal", "key_isolation_bypass", "presend_gate_disable", "link_allowlist_self_modification", "constraint_removal"]
+    never_acceptable:      ["credential_integrity_removal", "key_isolation_bypass", "presend_gate_disable", "link_allowlist_self_modification", "identity_declaration_self_modification", "constraint_removal"]
     requires_human_review: ["new_constraint", "entity_field_addition", "enforcement_scope_change"]
     acceptance_monitor: {
         threshold: 0.9

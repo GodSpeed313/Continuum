@@ -4,6 +4,7 @@
   "entity_state": {
     "credential_exposed": false,
     "link_violation": false,
+    "identity_drift": false,
     "session_id": "moltbook-session"
   },
   "response_history": []

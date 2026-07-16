@@ -77,7 +77,7 @@ class TestPolicy:
 
     def test_both_constraints_enforced(self):
         assert _ir()["enforce"] == {
-            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction"]
+            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"]
         }
 
 
