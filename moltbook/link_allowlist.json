@@ -1,0 +1,8 @@
+{
+  "_comment": "Static, human-owned link allowlist for M7 LinkRestriction (ruling §4, Q1). Hosts the M7 agent MAY surface even when not present in source content. Editable ONLY via commit/PR — the running agent has NO runtime write path to this file (loaded read-only). Adding a host here is a human decision, reviewed like any code change. Match is by host (and its subdomains).",
+  "allowed_hosts": [
+    "github.com",
+    "moltbook.com",
+    "continuum.dev"
+  ]
+}
