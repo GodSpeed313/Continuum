@@ -1,10 +1,11 @@
 """
 moltbook/detector.py — outbound-content detectors for the M7 pre-send gate.
 
-Two detectors share this module because they run on the same candidate content in the
+These detectors share this module because they run on the same candidate content in the
 same client gate:
-  - scan_content  — credential leak (docs/m7_credential_integrity_ruling.md §4)
-  - scan_links    — link provenance (docs/m7_link_restriction_ruling.md §4)
+  - scan_content   — credential leak (docs/m7_credential_integrity_ruling.md §4)
+  - scan_links     — link provenance (docs/m7_link_restriction_ruling.md §4)
+  - scan_identity  — within-session identity contradiction (docs/m7_identity_integrity_ruling.md §6)
 
 ────────────────────────────────────────────────────────────────────────────────────
 Credential-leak detector (CredentialIntegrity §4). Scans outbound content for secrets
@@ -166,3 +167,94 @@ def scan_links(content: str, source_content: str = "", allowed_hosts=()) -> Link
         findings.append(LinkFinding(url=url, host=host, provenance=prov, allowed=allowed))
 
     return LinkScan(is_violation=violation, findings=tuple(findings))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Within-session identity contradiction detector (IdentityIntegrity §6).
+#
+# MECHANICAL ONLY, on purpose. The baseline pass found first-person "I am / I do X"
+# is the dominant normal register on Moltbook, so this NEVER fires on a bare
+# first-person claim. It fires only on:
+#   handle_name   — an EXPLICIT self-naming construct ("my name/handle is X",
+#                   "call me X", "I go by X", "posting/signing as X", "I am @X",
+#                   "this is u/X") naming something other than the declared identity.
+#   role_negation — a DIRECT negation of a captured declared role ("I am not <role>").
+#
+# Semantic persona-drift (a voice/persona shift with no explicit construct) is a
+# DEFERRED gap (ruling §6), pinned by an xfail test — not detected here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Explicit self-naming via a naming verb — a real name/handle follows these.
+# Deliberately excludes bare "I am/I'm <phrase>" (the dominant-register guard).
+_SELF_NAME_RE = re.compile(
+    r"(?:my (?:name|handle|username) is|call me|i go by|posting as|signing as)\s+@?(\w[\w-]{1,})",
+    re.IGNORECASE,
+)
+# Handle-prefixed self-claim: the @/u/ prefix makes "I am @X" unambiguously an
+# identity claim (an adjective can't carry an @), so this is safe where bare
+# "I am X" is not. Must be a SELF construct, so a reference like "@bytes said" —
+# which has no "I am / this is / posting as" lead-in — does not match.
+_SELF_HANDLE_RE = re.compile(
+    r"(?:i am|i'm|this is|posting as)\s+(?:u/|@)(\w[\w-]{1,})",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class IdentityScan:
+    is_contradiction: bool
+    kind: str          # "handle_name" | "role_negation" | "none"
+    detail: str        # human-readable, names claimed vs declared (identity isn't secret)
+
+
+def _norm(s: str) -> str:
+    return (s or "").lstrip("@").strip().lower()
+
+
+def scan_identity(
+    content: str,
+    declared_handle: str,
+    declared_name: str | None = None,
+    declared_roles=(),
+) -> IdentityScan:
+    """
+    Detect a within-session identity contradiction against the session-start declaration.
+
+    Args:
+        content:         outbound post/comment/DM text.
+        declared_handle: the agent's handle captured at session start (immutable for session).
+        declared_name:   optional declared display name.
+        declared_roles:  optional captured role strings, for direct-negation checks.
+
+    Returns an IdentityScan. Mechanical only (ruling §6) — never fires on a bare
+    first-person claim.
+    """
+    text = content or ""
+    known = {_norm(declared_handle)}
+    if declared_name:
+        known.add(_norm(declared_name))
+
+    # handle_name: an explicit self-naming construct claiming a DIFFERENT identity.
+    for rx in (_SELF_NAME_RE, _SELF_HANDLE_RE):
+        for m in rx.finditer(text):
+            claimed = _norm(m.group(1))
+            if claimed and claimed not in known:
+                return IdentityScan(
+                    is_contradiction=True,
+                    kind="handle_name",
+                    detail=f"asserts identity '{m.group(1)}' != declared '{declared_handle}'",
+                )
+
+    # role_negation: direct negation of a captured declared role.
+    for role in declared_roles:
+        role = (role or "").strip()
+        if not role:
+            continue
+        if re.search(r"i(?:'m| am) not (?:a |an |the )?" + re.escape(role), text, re.IGNORECASE):
+            return IdentityScan(
+                is_contradiction=True,
+                kind="role_negation",
+                detail=f"directly negates declared role '{role}'",
+            )
+
+    return IdentityScan(is_contradiction=False, kind="none", detail="identity consistent")
