@@ -1,0 +1,51 @@
+// Pi Script v0.2 — M7 Moltbook Deployment Policy
+// Governs a Continuum agent operating on Moltbook, a live adversarial platform for
+// autonomous agents. One snapshot per agent action cycle (agent-session monitoring,
+// the m5/ dogfood pattern — not the es/ infrastructure-adapter pattern).
+//
+// Ruling: docs/m7_credential_integrity_ruling.md (LOCKED 2026-07-15).
+
+domain moltbook_agent_governance {
+    audit_interval: 6 hours
+    tiebreaker:     timestamp_asc
+}
+
+entity MoltbookSession {
+    credential_exposed: boolean       // set true by the client pre-send gate (ruling §4/§5)
+    session_id:         identifier
+}
+
+// ─── Constraints ──────────────────────────────────────────────────────────────
+// Only CredentialIntegrity is defined here — it is the one M7 constraint with a
+// locked ruling. IdentityIntegrity, ManipulationFlag, and LinkRestriction each
+// arrive with their own ruling; do NOT add them here before the ruling exists
+// (spec-first, CLAUDE.md). Their entity fields land alongside those rulings too.
+
+constraint CredentialIntegrity {
+    priority:     critical
+    rule:         MoltbookSession.credential_exposed must equal false
+    on_violation: freeze + escalate
+}
+
+// ─── Enforcement ──────────────────────────────────────────────────────────────
+
+enforce {
+    entity:      MoltbookSession
+    constraints: [CredentialIntegrity]
+}
+
+// ─── Arbiter ──────────────────────────────────────────────────────────────────
+// What evolution of this policy the resolver may accept autonomously vs. what it
+// must never accept or must route to human review. Credential controls are in the
+// never-acceptable set: the whole point of M7 is that a held platform key stays
+// unleakable, so weakening that is not a self-approvable change.
+
+arbiter MoltbookArbiter {
+    acceptable_evolution:  ["audit_interval_tuning", "escalation_threshold_tuning"]
+    never_acceptable:      ["credential_integrity_removal", "key_isolation_bypass", "presend_gate_disable", "constraint_removal"]
+    requires_human_review: ["new_constraint", "entity_field_addition", "enforcement_scope_change"]
+    acceptance_monitor: {
+        threshold: 0.9
+        window:    30 days
+    }
+}
