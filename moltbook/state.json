@@ -1,0 +1,9 @@
+{
+  "trigger_type": "event",
+  "entity": "MoltbookSession",
+  "entity_state": {
+    "credential_exposed": false,
+    "session_id": "moltbook-session"
+  },
+  "response_history": []
+}
