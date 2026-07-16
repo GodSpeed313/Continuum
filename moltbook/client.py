@@ -29,13 +29,33 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Callable
 
-from moltbook.detector import scan_content
+from moltbook.detector import scan_content, scan_links, LinkFinding
+
+_DEFAULT_ALLOWLIST = Path(__file__).with_name("link_allowlist.json")
 
 
 class KeyLeakBlocked(Exception):
     """Raised by the pre-send gate when outbound content contains a credential."""
+
+
+class LinkBlocked(Exception):
+    """Raised by the pre-send gate when outbound content surfaces a novel (un-provenanced) link."""
+
+
+def load_allowlist(path: str | Path | None = None) -> tuple[str, ...]:
+    """
+    Load the static link allowlist (ruling §4, Q1) as an IMMUTABLE tuple.
+
+    The agent gets no runtime write path — the allowlist is human-owned, editable only
+    via commit/PR to moltbook/link_allowlist.json. Returned as a tuple so there is no
+    mutation surface at all.
+    """
+    p = Path(path) if path is not None else _DEFAULT_ALLOWLIST
+    data = json.loads(p.read_text(encoding="utf-8"))
+    return tuple(data.get("allowed_hosts", []))
 
 
 def _no_transport(**_: Any) -> dict[str, Any]:
@@ -60,14 +80,23 @@ class MoltbookClient:
         api_key: str | None = None,
         transport: Callable[..., dict[str, Any]] | None = None,
         session_id: str = "moltbook-session",
+        allowed_hosts: tuple[str, ...] | None = None,
     ) -> None:
         # Key isolation: private, resolved from the same runtime secret source as auth.
         self._api_key = api_key if api_key is not None else os.environ.get("MOLTBOOK_API_KEY")
         self._transport = transport or _no_transport
         self.session_id = session_id
-        # Latch: once a leak is detected (even if blocked), stays set until the key is
-        # rotated and the session explicitly reset. Drives CredentialIntegrity.
+        # Latches: once set (even on a blocked attempt), stay set until the session is
+        # explicitly reset. Drive CredentialIntegrity / LinkRestriction respectively.
         self.credential_exposed = False
+        self.link_violation = False
+        # Immutable, human-owned allowlist (ruling §4, Q1). tuple = no mutation surface.
+        self._allowed_hosts: tuple[str, ...] = (
+            allowed_hosts if allowed_hosts is not None else load_allowlist()
+        )
+        # Provenance log: every surfaced link, regardless of outcome (ruling §5). This
+        # is the moltbook-local trail future coordinated-seeding detection will need.
+        self._link_log: list[LinkFinding] = []
 
     # ── Auth (the ONLY place the key is touched) ─────────────────────────────────
     def _auth_header(self) -> dict[str, str]:
@@ -89,20 +118,38 @@ class MoltbookClient:
         }
 
     # ── Pre-send gate (§4/§5) ────────────────────────────────────────────────────
-    def send(self, content: str, action: str = "post") -> dict[str, Any]:
+    def send(self, content: str, action: str = "post", source_content: str = "") -> dict[str, Any]:
         """
         Attempt to send an outbound action (post/comment/dm). Scans first.
 
-        On a credential hit: latch `credential_exposed`, refuse to send, raise
-        KeyLeakBlocked with a REDACTED message (never the secret). Otherwise hand
-        off to the injected transport with the auth header.
+        Two gates run before transmission:
+          - Credential (CredentialIntegrity §4): on a hit, latch `credential_exposed`,
+            refuse, raise KeyLeakBlocked with a REDACTED message (never the secret).
+          - Link provenance (LinkRestriction §4): every URL is logged (§5) regardless
+            of outcome; a novel (un-provenanced) URL latches `link_violation`, refuses,
+            and raises LinkBlocked.
+
+        `source_content` is the content the agent is responding to/citing — a URL present
+        there has legitimate provenance. On a clean pass, hand off to the transport.
         """
-        scan = scan_content(content, own_key=self._api_key)
-        if scan.is_leak:
-            # Belt-and-suspenders: block AND latch, so CredentialIntegrity fires even
-            # though nothing was transmitted (ruling §5).
+        # Gate 1 — credential (most severe; short-circuits).
+        cred = scan_content(content, own_key=self._api_key)
+        if cred.is_leak:
             self.credential_exposed = True
-            raise KeyLeakBlocked(f"{action} blocked by pre-send gate: {scan.detail}")
+            raise KeyLeakBlocked(f"{action} blocked by pre-send gate: {cred.detail}")
+
+        # Gate 2 — link provenance. Log every surfaced link first (§5), then enforce.
+        links = scan_links(content, source_content=source_content, allowed_hosts=self._allowed_hosts)
+        self._link_log.extend(links.findings)
+        if links.is_violation:
+            # Belt-and-suspenders: block AND latch, so LinkRestriction fires even though
+            # nothing was transmitted (ruling §6).
+            self.link_violation = True
+            novel_hosts = sorted({f.host or "<no-host>" for f in links.novel})
+            raise LinkBlocked(
+                f"{action} blocked by pre-send gate: novel link(s) not traceable to "
+                f"source or allowlist: {', '.join(novel_hosts)}"
+            )
 
         return self._transport(
             action=action,
@@ -121,10 +168,25 @@ class MoltbookClient:
             "entity": "MoltbookSession",
             "entity_state": {
                 "credential_exposed": self.credential_exposed,
+                "link_violation": self.link_violation,
                 "session_id": self.session_id,
             },
             "response_history": [],
         }
+
+    # ── Link provenance (LinkRestriction) ────────────────────────────────────────
+    @property
+    def allowed_hosts(self) -> tuple[str, ...]:
+        """The static allowlist, as an immutable tuple — no runtime mutation path (§4, Q1)."""
+        return self._allowed_hosts
+
+    def link_provenance_records(self) -> tuple[LinkFinding, ...]:
+        """
+        Every link surfaced this session, regardless of pass/fail (ruling §5). Attached
+        to the M7 resolution trace under moltbook/traces/ — kept moltbook-local so core
+        pi_script/trace.py (shared by link-less systems) is untouched.
+        """
+        return tuple(self._link_log)
 
     # ── Guard: prove no artifact leaks the key ───────────────────────────────────
     def _contains_key(self, obj: Any) -> bool:

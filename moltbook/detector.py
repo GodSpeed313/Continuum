@@ -1,8 +1,14 @@
 """
-moltbook/detector.py — credential-leak detector for the M7 pre-send gate.
+moltbook/detector.py — outbound-content detectors for the M7 pre-send gate.
 
-Implements §4 of docs/m7_credential_integrity_ruling.md. Scans outbound content for
-secrets in priority order:
+Two detectors share this module because they run on the same candidate content in the
+same client gate:
+  - scan_content  — credential leak (docs/m7_credential_integrity_ruling.md §4)
+  - scan_links    — link provenance (docs/m7_link_restriction_ruling.md §4)
+
+────────────────────────────────────────────────────────────────────────────────────
+Credential-leak detector (CredentialIntegrity §4). Scans outbound content for secrets
+in priority order:
 
     1. exact own-key match  (primary — zero false positives; the client knows its key)
     2. key-prefix pattern   (secondary — moltbook_sk_ / moltdev_; catches relayed keys)
@@ -24,6 +30,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 # moltbook_sk_<key> (agent keys) and moltdev_<key> (app-verification keys).
 _KEY_PREFIX_RE = re.compile(r"molt(?:book_sk|dev)_[A-Za-z0-9]+")
@@ -73,3 +80,89 @@ def scan_content(content: str, own_key: str | None = None) -> CredentialScan:
         )
 
     return CredentialScan(is_leak=False, rule="none", detail="no credential detected")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Link-provenance detector (LinkRestriction §4).
+#
+# A PROVENANCE check, not payload inspection: the gate never fetches a link or
+# judges whether its destination is malicious — only whether the agent had
+# legitimate grounds to surface it:
+#   source    — the exact URL appears in the content being responded to/cited (a)
+#   allowlist — the URL's host is on the static human-owned allowlist (b)
+#   novel     — neither; a URL the agent was not given (constructed, assembled from
+#               fragments, shortened/redirect, or suggested by another agent's post/
+#               DM without meeting (a)/(b)). A novel link is a violation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_URL_RE = re.compile(r"""https?://[^\s<>"')\]]+""", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class LinkFinding:
+    """One URL found in outbound content, with its provenance. Logged per ruling §5."""
+
+    url: str
+    host: str
+    provenance: str    # "source" | "allowlist" | "novel"
+    allowed: bool
+
+
+@dataclass(frozen=True)
+class LinkScan:
+    is_violation: bool                    # at least one novel link present
+    findings: tuple[LinkFinding, ...]
+
+    @property
+    def novel(self) -> tuple[LinkFinding, ...]:
+        return tuple(f for f in self.findings if f.provenance == "novel")
+
+
+def _host(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _host_allowed(host: str, allowed_hosts) -> bool:
+    """Exact host or subdomain match against the allowlist."""
+    if not host:
+        return False
+    for h in allowed_hosts:
+        h = h.lower()
+        if host == h or host.endswith("." + h):
+            return True
+    return False
+
+
+def scan_links(content: str, source_content: str = "", allowed_hosts=()) -> LinkScan:
+    """
+    Classify every URL in outbound `content` by provenance.
+
+    Args:
+        content:        the post/comment/DM about to be sent.
+        source_content: the content the agent is directly responding to/citing —
+                        a URL present here has provenance (a).
+        allowed_hosts:  the static, human-owned allowlist (ruling §4, Q1). Passed in
+                        by the client as an immutable value; the agent cannot expand it.
+
+    Returns a LinkScan. `is_violation` is True iff any URL is `novel`.
+    """
+    src = source_content or ""
+    findings: list[LinkFinding] = []
+    violation = False
+
+    for match in _URL_RE.finditer(content or ""):
+        url = match.group().rstrip(".,;")     # drop trailing sentence punctuation
+        host = _host(url)
+        if url in src:
+            prov, allowed = "source", True
+        elif _host_allowed(host, allowed_hosts):
+            prov, allowed = "allowlist", True
+        else:
+            prov, allowed = "novel", False
+            violation = True
+        findings.append(LinkFinding(url=url, host=host, provenance=prov, allowed=allowed))
+
+    return LinkScan(is_violation=violation, findings=tuple(findings))

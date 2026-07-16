@@ -11,19 +11,29 @@ domain moltbook_agent_governance {
 }
 
 entity MoltbookSession {
-    credential_exposed: boolean       // set true by the client pre-send gate (ruling §4/§5)
+    credential_exposed: boolean       // set true by the client pre-send gate (credential ruling §4/§5)
+    link_violation:     boolean       // set true by the link-provenance gate (link ruling §4)
     session_id:         identifier
 }
 
 // ─── Constraints ──────────────────────────────────────────────────────────────
-// Only CredentialIntegrity is defined here — it is the one M7 constraint with a
-// locked ruling. IdentityIntegrity, ManipulationFlag, and LinkRestriction each
-// arrive with their own ruling; do NOT add them here before the ruling exists
-// (spec-first, CLAUDE.md). Their entity fields land alongside those rulings too.
+// Each constraint has a locked ruling in docs/. IdentityIntegrity and
+// ManipulationFlag still need their own rulings; do NOT add them here before the
+// ruling exists (spec-first, CLAUDE.md). Their entity fields land with them too.
 
+// docs/m7_credential_integrity_ruling.md
 constraint CredentialIntegrity {
     priority:     critical
     rule:         MoltbookSession.credential_exposed must equal false
+    on_violation: freeze + escalate
+}
+
+// docs/m7_link_restriction_ruling.md — provenance check (link in source or on the
+// static human-owned allowlist), not payload inspection. Priority high (a tier
+// below CredentialIntegrity: a link is not an irreversibly-exploitable key).
+constraint LinkRestriction {
+    priority:     high
+    rule:         MoltbookSession.link_violation must equal false
     on_violation: freeze + escalate
 }
 
@@ -31,7 +41,7 @@ constraint CredentialIntegrity {
 
 enforce {
     entity:      MoltbookSession
-    constraints: [CredentialIntegrity]
+    constraints: [CredentialIntegrity, LinkRestriction]
 }
 
 // ─── Arbiter ──────────────────────────────────────────────────────────────────
@@ -42,7 +52,7 @@ enforce {
 
 arbiter MoltbookArbiter {
     acceptable_evolution:  ["audit_interval_tuning", "escalation_threshold_tuning"]
-    never_acceptable:      ["credential_integrity_removal", "key_isolation_bypass", "presend_gate_disable", "constraint_removal"]
+    never_acceptable:      ["credential_integrity_removal", "key_isolation_bypass", "presend_gate_disable", "link_allowlist_self_modification", "constraint_removal"]
     requires_human_review: ["new_constraint", "entity_field_addition", "enforcement_scope_change"]
     acceptance_monitor: {
         threshold: 0.9
