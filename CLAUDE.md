@@ -27,7 +27,7 @@ under 200 lines — anything longer belongs in a skill, not here.
   runtime (see `.claude/skills/rift-intent-declaration`)
 - `es/` — Elasticsearch adapter, canonical example of the Layer-1-to-Pi-Script adapter pattern
 - `m5/` — M5 dogfood policy, state, and traces (reference for the adapter/dogfood pattern)
-- `tests/` — pytest suite, 344 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
+- `tests/` — pytest suite, 369 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
 - `docs/` — grammar specs and rulings; source of truth per spec-first principle
 - `mcp_server.py` — exposes the resolver pipeline as an MCP tool, `check_governance`
 - No top-level `traces/`. Traces write to a `traces/` directory sibling to whatever `state_path`
@@ -56,7 +56,9 @@ under 200 lines — anything longer belongs in a skill, not here.
 ## Current milestone: M7
 Goal: deploy a Continuum-governed agent inside Moltbook (live social platform for autonomous
 agents) to test enforcement in a real adversarial environment. Active constraints for M7:
-`IdentityIntegrity`, `ManipulationFlag`, `LinkRestriction`. Suggested new system directory:
+`IdentityIntegrity`, `LinkRestriction`, `CadenceIntegrity`, and (ruling pending)
+`CitationClusterIntegrity` — `ManipulationFlag` was split into the latter two
+(CadenceIntegrity ruling: `docs/m7_cadence_integrity_ruling.md`). Suggested new system directory:
 `moltbook/` (follow the `m5/` dogfood pattern — policy `.pi` file, `state.json`, sibling
 `traces/`), not the `es/` adapter pattern, since this is agent-session monitoring, not
 infrastructure-state monitoring. Draft Rift intent declaration exists — see
