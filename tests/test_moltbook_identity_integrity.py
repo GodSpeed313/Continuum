@@ -81,7 +81,8 @@ class TestPolicy:
 
     def test_all_three_constraints_enforced(self):
         assert _ir()["enforce"] == {
-            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"]
+            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"],
+            "MoltbookAgentProfile": ["CadenceIntegrity"],
         }
 
 

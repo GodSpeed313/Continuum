@@ -49,6 +49,15 @@ class IdentityDriftBlocked(Exception):
     """Raised by the pre-send gate when outbound content contradicts the session-start identity."""
 
 
+class AutonomousPostingPaused(Exception):
+    """
+    Raised when an autonomous send is attempted while the §7 CadenceIntegrity pause is
+    latched (cadence ruling §7). Distinct from frozen: the pause blocks only autonomous
+    posts/comments/DMs — read-only observation continues, and an explicitly
+    human-authorized send still goes through the pre-send gates and out.
+    """
+
+
 def load_allowlist(path: str | Path | None = None) -> tuple[str, ...]:
     """
     Load the static link allowlist (ruling §4, Q1) as an IMMUTABLE tuple.
@@ -88,6 +97,7 @@ class MoltbookClient:
         declared_handle: str = "",
         declared_name: str | None = None,
         declared_roles: tuple[str, ...] = (),
+        cadence_store: Any | None = None,
     ) -> None:
         # Fail closed on a missing identity baseline (addendum A1): with no declared
         # handle the known-identity set would be {""} and the identity gate would fire
@@ -119,6 +129,10 @@ class MoltbookClient:
         self._allowed_hosts: tuple[str, ...] = (
             allowed_hosts if allowed_hosts is not None else load_allowlist()
         )
+        # §7 pause plumbing (cadence ruling): the persistent pause latch lives in the
+        # CadenceObservationStore, not on this session object — it must survive process
+        # restarts and clear only via explicit human reset. The client just consults it.
+        self._cadence_store = cadence_store
         # Provenance log: every surfaced link, regardless of outcome (ruling §5). This
         # is the moltbook-local trail future coordinated-seeding detection will need.
         self._link_log: list[LinkFinding] = []
@@ -143,7 +157,13 @@ class MoltbookClient:
         }
 
     # ── Pre-send gate (§4/§5) ────────────────────────────────────────────────────
-    def send(self, content: str, action: str = "post", source_content: str = "") -> dict[str, Any]:
+    def send(
+        self,
+        content: str,
+        action: str = "post",
+        source_content: str = "",
+        human_authorized: bool = False,
+    ) -> dict[str, Any]:
         """
         Attempt to send an outbound action (post/comment/dm). Scans first.
 
@@ -190,6 +210,20 @@ class MoltbookClient:
         if ident.is_contradiction:
             raise IdentityDriftBlocked(
                 f"{action} blocked by pre-send gate: identity drift ({ident.kind}) — {ident.detail}"
+            )
+
+        # §7 CadenceIntegrity pause (cadence ruling): checked AFTER the scans so a
+        # tainted attempt made while paused still latches every violation and writes
+        # the link log (A5: nothing silently dropped), but BEFORE transport so no
+        # autonomous post/comment/DM leaves while the pause is latched. An explicitly
+        # human-authorized send is exempt from the pause — never from the gates above.
+        if (
+            not human_authorized
+            and self._cadence_store is not None
+            and self._cadence_store.paused
+        ):
+            raise AutonomousPostingPaused(
+                f"autonomous {action} blocked: {self._cadence_store.pause_reason}"
             )
 
         return self._transport(

@@ -1,6 +1,6 @@
 ---
 name: pi-script-constraint
-description: Use whenever writing, editing, or reviewing a Pi Script constraint (the rule units that Continuum's resolver enforces, e.g. IdentityIntegrity, ManipulationFlag, LinkRestriction). Triggers on "new constraint", "add a Pi Script rule", "constraint for M7", or when reviewing pi_script/ files.
+description: Use whenever writing, editing, or reviewing a Pi Script constraint (the rule units that Continuum's resolver enforces, e.g. IdentityIntegrity, CadenceIntegrity, LinkRestriction). Triggers on "new constraint", "add a Pi Script rule", "constraint for M7", or when reviewing pi_script/ files.
 ---
 
 # Writing a Pi Script Constraint
@@ -45,9 +45,11 @@ parallel test runner. Test command is `pytest`, not `npm test`.
 
 ## 5. Current M7 constraint set (reference)
 - `IdentityIntegrity` — agent identity claims stay consistent with declared identity over session
-- `ManipulationFlag` — flags manipulative/coercive patterns directed at other Moltbook agents or
-  users. v1 scope is direct manipulation of a specific target; coordinated cross-agent narrative
-  manipulation (see M7 recon notes) is an explicit v1.1/v2 extension, not in scope yet.
+- `CadenceIntegrity` — near-exact periodic posting by the governed agent itself (timing only,
+  never content or other accounts; docs/m7_cadence_integrity_ruling.md). First of the two
+  Longitudinal Constraints that `ManipulationFlag` was split into.
+- `CitationClusterIntegrity` — second half of the ManipulationFlag split (coordinated
+  cross-citation signals); ruling not yet written — spec-first, do not implement before it exists.
 - `LinkRestriction` — restricts what external links/references the agent can surface
 
 When extending or reviewing these, check them against the ruling paragraph before touching the

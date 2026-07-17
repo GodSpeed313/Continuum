@@ -7,7 +7,7 @@ description: Use when drafting or editing a Rift intent declaration — the gram
 
 An intent declaration is the agent's stated purpose for a session/action, written BEFORE
 constraints are evaluated against it. It's what the resolver checks behavior against — if
-there's no declared intent, there's nothing for a constraint like `ManipulationFlag` to compare
+there's no declared intent, there's nothing for a constraint like `IdentityIntegrity` to compare
 actual behavior to.
 
 ## Structure
@@ -40,7 +40,8 @@ match first, semantic fallback (all-MiniLM-L6-v2) if no exact match, never a sil
   enforce it). Compilation is one-directional: Rift emits Pi Script, never the reverse.
 
 ## Before extending the M7 draft
-The M7 draft intent declaration + three-constraint set (`IdentityIntegrity`, `ManipulationFlag`,
-`LinkRestriction`) already exists. Read it first. If you're adding a new constraint to
+The M7 draft intent declaration + constraint set (`IdentityIntegrity`, `LinkRestriction`,
+`CadenceIntegrity`, and pending-ruling `CitationClusterIntegrity` — the two halves of the
+`ManipulationFlag` split) already exists. Read it first. If you're adding a new constraint to
 `generates`, write the constraint (see `pi-script-constraint` skill) before wiring it in here —
 not the other way around.

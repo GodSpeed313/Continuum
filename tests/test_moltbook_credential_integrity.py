@@ -73,9 +73,11 @@ class TestPolicy:
             "value": False,
         }
         assert c["on_violation"] == ["freeze", "escalate"]
-        # LinkRestriction + IdentityIntegrity joined the enforce block (M7 rulings).
+        # LinkRestriction + IdentityIntegrity joined the enforce block (M7 rulings);
+        # CadenceIntegrity governs the agent profile via its own enforce block.
         assert ir["enforce"] == {
-            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"]
+            "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"],
+            "MoltbookAgentProfile": ["CadenceIntegrity"],
         }
 
 

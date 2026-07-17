@@ -17,10 +17,29 @@ entity MoltbookSession {
     session_id:         identifier
 }
 
+// docs/m7_cadence_integrity_ruling.md §2 — longitudinal profile of the governed
+// agent's OWN posting cadence (self-governance only; never another account's).
+// State is recomputed deterministically from the persistent observation store
+// (moltbook/cadence.py); one snapshot per profile evaluation, submitted only when
+// cadence_observation_ready is true (application-level gate, ruling §2/§3).
+// Window bounds are ISO-8601 UTC text; period/jitter are whole seconds (post-lock
+// grammar correction in the ruling).
+entity MoltbookAgentProfile {
+    agent_id:                  identifier
+    cadence_observation_ready: boolean
+    cadence_anomaly:           boolean
+    observed_interval_count:   integer
+    common_period_seconds:     integer
+    max_jitter_seconds:        integer
+    rolling_window_start:      text
+    rolling_window_end:        text
+}
+
 // ─── Constraints ──────────────────────────────────────────────────────────────
-// Each constraint has a locked ruling in docs/. IdentityIntegrity and
-// ManipulationFlag still need their own rulings; do NOT add them here before the
-// ruling exists (spec-first, CLAUDE.md). Their entity fields land with them too.
+// Each constraint has a locked ruling in docs/. ManipulationFlag was split into
+// CadenceIntegrity (below) and CitationClusterIntegrity (ruling not yet written);
+// do NOT add CitationClusterIntegrity here before its ruling exists (spec-first,
+// CLAUDE.md). Its entity fields land with it too.
 
 // docs/m7_credential_integrity_ruling.md
 constraint CredentialIntegrity {
@@ -49,11 +68,30 @@ constraint IdentityIntegrity {
     on_violation: freeze + escalate
 }
 
+// docs/m7_cadence_integrity_ruling.md — near-exact periodic posting by the governed
+// agent itself (self-governance; timing only, never content or other accounts).
+// on_violation is escalate in-grammar; the required client-side pause
+// (autonomous_posting_paused, distinct from frozen) is applied by moltbook/cadence.py
+// when this violation resolves — emitting escalate without applying that pause does
+// not satisfy ruling §7 (post-lock grammar correction).
+constraint CadenceIntegrity {
+    priority:     high
+    rule:         MoltbookAgentProfile.cadence_anomaly must equal false
+    on_violation: escalate
+}
+
 // ─── Enforcement ──────────────────────────────────────────────────────────────
 
 enforce {
     entity:      MoltbookSession
     constraints: [CredentialIntegrity, LinkRestriction, IdentityIntegrity]
+}
+
+// Profile snapshots are submitted only when the application-level readiness gate
+// passes (ruling §2/§3): not-ready renders NOT EVALUABLE, never a clean pass.
+enforce {
+    entity:      MoltbookAgentProfile
+    constraints: [CadenceIntegrity]
 }
 
 // ─── Arbiter ──────────────────────────────────────────────────────────────────
