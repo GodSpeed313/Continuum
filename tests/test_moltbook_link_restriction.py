@@ -58,6 +58,7 @@ def _state(credential_exposed=False, link_violation=False) -> dict:
 def _client(**kw) -> MoltbookClient:
     kw.setdefault("api_key", DUMMY_KEY)
     kw.setdefault("allowed_hosts", ALLOWLIST)
+    kw.setdefault("declared_handle", "continuum_gov")  # required at construction (addendum A1)
     return MoltbookClient(**kw)
 
 

@@ -27,7 +27,7 @@ under 200 lines — anything longer belongs in a skill, not here.
   runtime (see `.claude/skills/rift-intent-declaration`)
 - `es/` — Elasticsearch adapter, canonical example of the Layer-1-to-Pi-Script adapter pattern
 - `m5/` — M5 dogfood policy, state, and traces (reference for the adapter/dogfood pattern)
-- `tests/` — pytest suite, 278 tests passing across parser/validator/trace/resolver/Rift/MCP/dashboard
+- `tests/` — pytest suite, 344 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
 - `docs/` — grammar specs and rulings; source of truth per spec-first principle
 - `mcp_server.py` — exposes the resolver pipeline as an MCP tool, `check_governance`
 - No top-level `traces/`. Traces write to a `traces/` directory sibling to whatever `state_path`

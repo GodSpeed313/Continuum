@@ -181,13 +181,20 @@ def scan_links(content: str, source_content: str = "", allowed_hosts=()) -> Link
 #   role_negation — a DIRECT negation of a captured declared role ("I am not <role>").
 #
 # Semantic persona-drift (a voice/persona shift with no explicit construct) is a
-# DEFERRED gap (ruling §6), pinned by an xfail test — not detected here.
+# DEFERRED gap (ruling §6), pinned by an xfail test — not detected here. So is
+# quoted/reported speech (addendum A4): the scan has no speaker attribution, and
+# quote-exclusion zones are deliberately NOT implemented — an exclusion zone is an
+# evasion channel. Pinned by an xfail test, same as persona-drift.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Explicit self-naming via a naming verb — a real name/handle follows these.
 # Deliberately excludes bare "I am/I'm <phrase>" (the dominant-register guard).
+# The capture is a bounded multi-token phrase (addendum A2): declared display
+# names may be multi-word, so capped at 4 word tokens, single-space joined,
+# stopping at punctuation.
 _SELF_NAME_RE = re.compile(
-    r"(?:my (?:name|handle|username) is|call me|i go by|posting as|signing as)\s+@?(\w[\w-]{1,})",
+    r"(?:my (?:name|handle|username) is|call me|i go by|posting as|signing as)"
+    r"\s+@?(\w[\w-]*(?: \w[\w-]*){0,3})",
     re.IGNORECASE,
 )
 # Handle-prefixed self-claim: the @/u/ prefix makes "I am @X" unambiguously an
@@ -211,6 +218,23 @@ def _norm(s: str) -> str:
     return (s or "").lstrip("@").strip().lower()
 
 
+def _token_prefix_consistent(claimed: str, known: set[str]) -> bool:
+    """
+    Bidirectional leading-token-prefix comparison (addendum A2). A claim is
+    consistent with a known identity iff one side's tokens are a leading prefix
+    of the other's: a truthful truncation ("Continuum" vs declared "Continuum
+    Guardian") and suffix chatter ("Continuum Guardian the Third") never fire;
+    a divergent phrase ("Continuum Destroyer") does. Both strings pre-normalized.
+    """
+    ct = claimed.split()
+    for k in known:
+        kt = k.split()
+        n = min(len(ct), len(kt))
+        if n and ct[:n] == kt[:n]:
+            return True
+    return False
+
+
 def scan_identity(
     content: str,
     declared_handle: str,
@@ -223,7 +247,9 @@ def scan_identity(
     Args:
         content:         outbound post/comment/DM text.
         declared_handle: the agent's handle captured at session start (immutable for session).
-        declared_name:   optional declared display name.
+                         Single token. The CLIENT refuses to construct without one (addendum
+                         A1); called directly with an empty handle, this stays fail-closed.
+        declared_name:   optional declared display name — may be multi-word (addendum A2).
         declared_roles:  optional captured role strings, for direct-negation checks.
 
     Returns an IdentityScan. Mechanical only (ruling §6) — never fires on a bare
@@ -234,11 +260,13 @@ def scan_identity(
     if declared_name:
         known.add(_norm(declared_name))
 
-    # handle_name: an explicit self-naming construct claiming a DIFFERENT identity.
+    # handle_name: an explicit self-naming construct claiming a DIFFERENT identity —
+    # different under the bidirectional token-prefix rule (addendum A2), so a truthful
+    # truncation or suffix chatter around a known identity never fires.
     for rx in (_SELF_NAME_RE, _SELF_HANDLE_RE):
         for m in rx.finditer(text):
             claimed = _norm(m.group(1))
-            if claimed and claimed not in known:
+            if claimed and not _token_prefix_consistent(claimed, known):
                 return IdentityScan(
                     is_contradiction=True,
                     kind="handle_name",
@@ -250,7 +278,13 @@ def scan_identity(
         role = (role or "").strip()
         if not role:
             continue
-        if re.search(r"i(?:'m| am) not (?:a |an |the )?" + re.escape(role), text, re.IGNORECASE):
+        # Anchored both ends (addendum A3) so a declared role can't match inside a
+        # longer word ("art" must not fire on "I am not an artist").
+        if re.search(
+            r"\bi(?:'m| am) not (?:a |an |the )?" + re.escape(role) + r"(?=\W|$)",
+            text,
+            re.IGNORECASE,
+        ):
             return IdentityScan(
                 is_contradiction=True,
                 kind="role_negation",
