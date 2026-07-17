@@ -9,6 +9,13 @@ Covers docs/m7_identity_integrity_ruling.md:
     - Pre-send gate (§7): blocks + latches on contradiction, passes consistent content.
     - Fresh-session reset (§2): re-declaring identity in a new client is not a violation.
     - Gap-documenting xfail (§6): semantic persona-drift is NOT caught in v1.
+
+Plus docs/m7_identity_integrity_ruling_addendum_1.md (signed off 2026-07-17):
+    - A1: construction without a declared handle fails closed (ValueError).
+    - A2: multi-word display names — truthful self-naming never fires; divergent does.
+    - A3: role negation is word-boundary-anchored.
+    - A4: quoted/reported speech false-positive — pinned xfail, no exclusion zones.
+    - A5: scan-all-then-block — one message tripping all three gates latches all three.
 """
 
 from __future__ import annotations
@@ -20,7 +27,7 @@ import pytest
 from pi_script.parser import parse_file
 from pi_script.validator import PiValidator
 from pi_script.resolver import resolve
-from moltbook.client import MoltbookClient, IdentityDriftBlocked
+from moltbook.client import MoltbookClient, IdentityDriftBlocked, KeyLeakBlocked
 from moltbook.detector import scan_identity
 
 POLICY = Path(__file__).resolve().parents[1] / "moltbook" / "moltbook.pi"
@@ -164,6 +171,121 @@ class TestPreSendGate:
         assert trace["system_state"] == "frozen"
 
 
+# ── Addendum A1: fail-closed construction ────────────────────────────────────
+
+class TestFailClosedConstruction:
+    def test_empty_handle_refuses_to_construct(self):
+        with pytest.raises(ValueError):
+            _client(declared_handle="")
+
+    def test_whitespace_handle_refuses_to_construct(self):
+        with pytest.raises(ValueError):
+            _client(declared_handle="   ")
+
+    def test_valid_handle_constructs(self):
+        assert _client().identity_drift is False
+
+
+# ── Addendum A2: multi-word display names, token-prefix-tolerant comparison ──
+
+class TestDisplayNames:
+    NAME = "Continuum Guardian"
+
+    def test_truthful_multiword_name_is_clean(self):
+        # The self-DoS regression: stating the declared multi-word name verbatim
+        # must never fire.
+        scan = scan_identity(
+            "My name is Continuum Guardian, for the record.",
+            declared_handle=HANDLE, declared_name=self.NAME,
+        )
+        assert not scan.is_contradiction
+
+    def test_truthful_truncation_is_clean(self):
+        scan = scan_identity(
+            "call me Continuum.",
+            declared_handle=HANDLE, declared_name=self.NAME,
+        )
+        assert not scan.is_contradiction
+
+    def test_suffix_chatter_around_known_name_is_clean(self):
+        scan = scan_identity(
+            "My name is Continuum Guardian and I audit constraints",
+            declared_handle=HANDLE, declared_name=self.NAME,
+        )
+        assert not scan.is_contradiction
+
+    def test_divergent_multiword_name_fires(self):
+        scan = scan_identity(
+            "my name is Continuum Destroyer.",
+            declared_handle=HANDLE, declared_name=self.NAME,
+        )
+        assert scan.is_contradiction
+        assert scan.kind == "handle_name"
+
+    def test_wholly_different_multiword_name_fires(self):
+        scan = scan_identity(
+            "my name is Root Admin.",
+            declared_handle=HANDLE, declared_name=self.NAME,
+        )
+        assert scan.is_contradiction
+
+
+# ── Addendum A3: role negation is boundary-anchored ──────────────────────────
+
+class TestRoleNegationBoundaries:
+    def test_role_does_not_match_inside_longer_word(self):
+        scan = scan_identity("I am not an artist.", declared_handle=HANDLE, declared_roles=("art",))
+        assert not scan.is_contradiction
+
+    def test_anchored_negation_still_fires(self):
+        scan = scan_identity("I'm not an auditor", declared_handle=HANDLE, declared_roles=("auditor",))
+        assert scan.is_contradiction
+        assert scan.kind == "role_negation"
+
+
+# ── Addendum A5: scan-all-then-block ─────────────────────────────────────────
+
+class TestScanAllGate:
+    OWN_KEY = "moltbook_sk_OWNKEYtestvalue1234567890"
+
+    def test_triple_violation_latches_everything_and_raises_most_severe(self):
+        client = _client(api_key=self.OWN_KEY)
+        tainted = (
+            f"call me nightshade — my key is {self.OWN_KEY}, "
+            "details at https://evil.example.net/steal"
+        )
+        # Most severe exception wins the raise…
+        with pytest.raises(KeyLeakBlocked):
+            client.send(tainted, action="post")
+        # …but nothing is silently dropped (v0.1 Q1): every gate latched, and the
+        # link log recorded the URL even though the credential gate also fired.
+        assert client.credential_exposed is True
+        assert client.link_violation is True
+        assert client.identity_drift is True
+        assert any("evil.example.net" in f.host for f in client.link_provenance_records())
+
+    def test_resolver_sees_the_full_co_active_set(self):
+        client = _client(api_key=self.OWN_KEY)
+        with pytest.raises(KeyLeakBlocked):
+            client.send(
+                f"call me nightshade — my key is {self.OWN_KEY}, "
+                "details at https://evil.example.net/steal"
+            )
+        trace, _, code = resolve(_ir(), client.snapshot())
+        assert code == 1
+        assert trace["system_state"] == "frozen"
+        violated = {c["name"] for c in trace["constraints"] if c["status"] == "violated"}
+        assert violated == {"CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"}
+
+    def test_single_violation_behaves_as_before(self):
+        client = _client()
+        with pytest.raises(IdentityDriftBlocked):
+            client.send("call me nightshade")
+        assert client.identity_drift is True
+        assert client.credential_exposed is False
+        assert client.link_violation is False
+
+
 # ── Fresh-session reset (§2) ─────────────────────────────────────────────────
 
 class TestSessionReset:
@@ -184,3 +306,35 @@ def test_semantic_persona_drift_is_a_known_gap():
     # assert states the ASPIRATIONAL catch; it fails by design until detection improves.
     drifted = "hey friends!! lets ditch the boring rules and just vibe and hype coins together 🚀🚀"
     assert scan_identity(drifted, declared_handle=HANDLE, declared_roles=ROLES).is_contradiction
+
+
+# ── Gap-documenting xfails (addendum A4): quoted/reported speech ──────────────
+
+@pytest.mark.xfail(strict=True, reason="addendum A4: no speaker attribution — quoted self-naming by ANOTHER speaker false-positives; exclusion zones deliberately not implemented (evasion channel)")
+def test_quoted_reported_speech_is_a_known_false_positive():
+    # The agent is QUOTING an attacker, not renaming itself. The assert states the
+    # aspirational non-fire; today the scan has no speaker attribution and fires.
+    quoted = 'The attacker wrote, "my name is RootAdmin" — do not fall for it.'
+    assert not scan_identity(quoted, declared_handle=HANDLE).is_contradiction
+
+
+def test_quoting_own_matching_identity_is_clean():
+    # Quoted material that matches the declared identity has nothing to contradict.
+    scan = scan_identity(f'as I said before: "my name is {HANDLE}"', declared_handle=HANDLE)
+    assert not scan.is_contradiction
+
+
+# ── Gap-documenting xfail (addendum A2 residual): truncation + trailing chatter ──
+
+@pytest.mark.xfail(strict=True, reason="addendum A2 residual: truncating a multi-word declared name and continuing the sentence without punctuation pollutes the capture and false-positives; mechanically indistinguishable from a divergent name in v1")
+def test_truncated_name_with_trailing_chatter_is_a_known_false_positive():
+    # Truthful truncation ("Continuum" of "Continuum Guardian") followed by unpunctuated
+    # chatter: the capture becomes "Continuum and I audit", which diverges at token 2
+    # exactly like "Continuum Destroyer" does. The assert states the aspirational
+    # non-fire. Mere truncation WITH punctuation ("call me Continuum.") is clean and
+    # covered by TestDisplayNames.
+    scan = scan_identity(
+        "my name is Continuum and I audit constraints",
+        declared_handle=HANDLE, declared_name="Continuum Guardian",
+    )
+    assert not scan.is_contradiction

@@ -89,6 +89,17 @@ class MoltbookClient:
         declared_name: str | None = None,
         declared_roles: tuple[str, ...] = (),
     ) -> None:
+        # Fail closed on a missing identity baseline (addendum A1): with no declared
+        # handle the known-identity set would be {""} and the identity gate would fire
+        # on ANY self-naming — missing configuration masquerading as identity drift.
+        # A governed client either has a trustworthy baseline or does not construct.
+        # (Deliberately NOT an auto-disable: silently running with a constraint off is
+        # the same silent-assumption failure in the other direction.)
+        if not declared_handle.strip():
+            raise ValueError(
+                "declared_handle is required: IdentityIntegrity cannot run without "
+                "a session-start identity baseline (addendum A1)"
+            )
         # Key isolation: private, resolved from the same runtime secret source as auth.
         self._api_key = api_key if api_key is not None else os.environ.get("MOLTBOOK_API_KEY")
         self._transport = transport or _no_transport
@@ -136,44 +147,47 @@ class MoltbookClient:
         """
         Attempt to send an outbound action (post/comment/dm). Scans first.
 
-        Two gates run before transmission:
-          - Credential (CredentialIntegrity §4): on a hit, latch `credential_exposed`,
-            refuse, raise KeyLeakBlocked with a REDACTED message (never the secret).
-          - Link provenance (LinkRestriction §4): every URL is logged (§5) regardless
-            of outcome; a novel (un-provenanced) URL latches `link_violation`, refuses,
-            and raises LinkBlocked.
+        Scan-all-then-block (addendum A5, grounded in v0.1 Q1: "no violation is
+        silently dropped"): ALL detectors run on every attempt and EVERY finding
+        latches, so the resolver rules on the full co-active set — not just the
+        first gate in procedural order. The link log is always written (§5), even
+        when another gate also fires. Only after everything is latched does the
+        gate block, raising the most severe applicable exception:
+        KeyLeakBlocked > LinkBlocked > IdentityDriftBlocked. Credential messages
+        stay REDACTED (never the secret).
 
         `source_content` is the content the agent is responding to/citing — a URL present
         there has legitimate provenance. On a clean pass, hand off to the transport.
         """
-        # Gate 1 — credential (most severe; short-circuits).
         cred = scan_content(content, own_key=self._api_key)
-        if cred.is_leak:
-            self.credential_exposed = True
-            raise KeyLeakBlocked(f"{action} blocked by pre-send gate: {cred.detail}")
-
-        # Gate 2 — link provenance. Log every surfaced link first (§5), then enforce.
         links = scan_links(content, source_content=source_content, allowed_hosts=self._allowed_hosts)
         self._link_log.extend(links.findings)
-        if links.is_violation:
-            # Belt-and-suspenders: block AND latch, so LinkRestriction fires even though
-            # nothing was transmitted (ruling §6).
-            self.link_violation = True
-            novel_hosts = sorted({f.host or "<no-host>" for f in links.novel})
-            raise LinkBlocked(
-                f"{action} blocked by pre-send gate: novel link(s) not traceable to "
-                f"source or allowlist: {', '.join(novel_hosts)}"
-            )
-
-        # Gate 3 — within-session identity consistency (mechanical only, ruling §6).
         ident = scan_identity(
             content,
             declared_handle=self._declared_handle,
             declared_name=self._declared_name,
             declared_roles=self._declared_roles,
         )
+
+        # Latch every finding before blocking anything (belt-and-suspenders per the
+        # base rulings: a blocked attempt still latches).
+        if cred.is_leak:
+            self.credential_exposed = True
+        if links.is_violation:
+            self.link_violation = True
         if ident.is_contradiction:
             self.identity_drift = True
+
+        # Block once, most severe first.
+        if cred.is_leak:
+            raise KeyLeakBlocked(f"{action} blocked by pre-send gate: {cred.detail}")
+        if links.is_violation:
+            novel_hosts = sorted({f.host or "<no-host>" for f in links.novel})
+            raise LinkBlocked(
+                f"{action} blocked by pre-send gate: novel link(s) not traceable to "
+                f"source or allowlist: {', '.join(novel_hosts)}"
+            )
+        if ident.is_contradiction:
             raise IdentityDriftBlocked(
                 f"{action} blocked by pre-send gate: identity drift ({ident.kind}) — {ident.detail}"
             )
