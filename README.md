@@ -357,9 +357,9 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | Pi Script v0.2 — Rulings 9.4–9.9 (bidirectional maps, cross-domain inheritance, violation counters, arbiter mandatory, semantic map matching, standing bound rule) | ✅ Complete |
 | MCP server, governance dashboard, persistence/write-queue | ✅ Complete |
 | Rift v0.2 — Rulings 3.1 + 3.2 (semantic declaration matching, known-values accumulation via `RiftSession`) | ✅ Complete — 71/71 Rift tests |
-| M7 — Moltbook governed-agent deployment | 🔄 In progress — ✅ CredentialIntegrity · ✅ LinkRestriction · ✅ IdentityIntegrity v1 · ✅ CadenceIntegrity · ⏳ CitationClusterIntegrity (ManipulationFlag was split into these two) |
+| M7 — Moltbook governed-agent deployment | 🔄 In progress — ✅ CredentialIntegrity · ✅ LinkRestriction · ✅ IdentityIntegrity v1 · ✅ CadenceIntegrity · ✅ CitationClusterIntegrity (ManipulationFlag was split into these two; §5 thresholds await the grounding amendment) |
 
-**369 tests passing + 6 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, and the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity).
+**405 tests passing + 6 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, and the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity).
 
 ---
 

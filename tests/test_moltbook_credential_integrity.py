@@ -77,7 +77,7 @@ class TestPolicy:
         # CadenceIntegrity governs the agent profile via its own enforce block.
         assert ir["enforce"] == {
             "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"],
-            "MoltbookAgentProfile": ["CadenceIntegrity"],
+            "MoltbookAgentProfile": ["CadenceIntegrity", "CitationClusterIntegrity"],
         }
 
 

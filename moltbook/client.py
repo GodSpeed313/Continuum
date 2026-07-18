@@ -98,6 +98,7 @@ class MoltbookClient:
         declared_name: str | None = None,
         declared_roles: tuple[str, ...] = (),
         cadence_store: Any | None = None,
+        citation_store: Any | None = None,
     ) -> None:
         # Fail closed on a missing identity baseline (addendum A1): with no declared
         # handle the known-identity set would be {""} and the identity gate would fire
@@ -129,10 +130,11 @@ class MoltbookClient:
         self._allowed_hosts: tuple[str, ...] = (
             allowed_hosts if allowed_hosts is not None else load_allowlist()
         )
-        # §7 pause plumbing (cadence ruling): the persistent pause latch lives in the
-        # CadenceObservationStore, not on this session object — it must survive process
-        # restarts and clear only via explicit human reset. The client just consults it.
+        # §7 pause plumbing (cadence + citation rulings): each longitudinal store owns
+        # its persistent pause latch — it must survive process restarts and clear only
+        # via explicit human reset. The client just consults them; either latch pauses.
         self._cadence_store = cadence_store
+        self._citation_store = citation_store
         # Provenance log: every surfaced link, regardless of outcome (ruling §5). This
         # is the moltbook-local trail future coordinated-seeding detection will need.
         self._link_log: list[LinkFinding] = []
@@ -212,19 +214,18 @@ class MoltbookClient:
                 f"{action} blocked by pre-send gate: identity drift ({ident.kind}) — {ident.detail}"
             )
 
-        # §7 CadenceIntegrity pause (cadence ruling): checked AFTER the scans so a
-        # tainted attempt made while paused still latches every violation and writes
-        # the link log (A5: nothing silently dropped), but BEFORE transport so no
-        # autonomous post/comment/DM leaves while the pause is latched. An explicitly
-        # human-authorized send is exempt from the pause — never from the gates above.
-        if (
-            not human_authorized
-            and self._cadence_store is not None
-            and self._cadence_store.paused
-        ):
-            raise AutonomousPostingPaused(
-                f"autonomous {action} blocked: {self._cadence_store.pause_reason}"
-            )
+        # §7 longitudinal pause (cadence + citation rulings): checked AFTER the scans
+        # so a tainted attempt made while paused still latches every violation and
+        # writes the link log (A5: nothing silently dropped), but BEFORE transport so
+        # no autonomous post/comment/DM leaves while either pause is latched. An
+        # explicitly human-authorized send is exempt from the pause — never from the
+        # gates above.
+        if not human_authorized:
+            for store in (self._cadence_store, self._citation_store):
+                if store is not None and store.paused:
+                    raise AutonomousPostingPaused(
+                        f"autonomous {action} blocked: {store.pause_reason}"
+                    )
 
         return self._transport(
             action=action,

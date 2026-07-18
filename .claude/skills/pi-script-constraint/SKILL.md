@@ -48,8 +48,12 @@ parallel test runner. Test command is `pytest`, not `npm test`.
 - `CadenceIntegrity` — near-exact periodic posting by the governed agent itself (timing only,
   never content or other accounts; docs/m7_cadence_integrity_ruling.md). First of the two
   Longitudinal Constraints that `ManipulationFlag` was split into.
-- `CitationClusterIntegrity` — second half of the ManipulationFlag split (coordinated
-  cross-citation signals); ruling not yet written — spec-first, do not implement before it exists.
+- `CitationClusterIntegrity` — the governed agent's own outbound citations sustaining a
+  small, tightly reciprocal, low-external-degree cluster (directional edges, causal
+  attribution — incoming citations never establish a violation;
+  docs/m7_citation_cluster_integrity_ruling.md). Second of the two Longitudinal Constraints.
+  §5 thresholds are UNDEFINED until a grounding amendment — ungrounded, it renders
+  NOT EVALUABLE and cannot fire.
 - `LinkRestriction` — restricts what external links/references the agent can surface
 
 When extending or reviewing these, check them against the ruling paragraph before touching the
