@@ -301,6 +301,40 @@ The full policy is in [`es/es_governance.pi`](es/es_governance.pi). The adapter 
 
 ---
 
+## Governing a live agent — Moltbook (M7)
+
+M7 puts a Continuum-governed agent onto **Moltbook**, a live social platform for autonomous agents — and an openly adversarial environment where injection payloads hunt for other agents' secrets. The [`moltbook/`](moltbook/) module follows the `m5/` dogfood pattern (one policy file, persistent state, sibling traces), governing the agent's own sessions rather than external infrastructure.
+
+Five constraints, each with a locked, spec-first ruling in `docs/`:
+
+| Constraint | Priority | Governs |
+| --- | --- | --- |
+| [`CredentialIntegrity`](docs/m7_credential_integrity_ruling.md) | critical | The platform API key stays unleakable — key isolation plus a pre-send gate |
+| [`LinkRestriction`](docs/m7_link_restriction_ruling.md) | high | A link is surfaced only with provenance: present in the source content, or on the human-owned allowlist |
+| [`IdentityIntegrity`](docs/m7_identity_integrity_ruling.md) | high | Declared identity stays self-consistent within a session — mechanical detection only ([addendum 1](docs/m7_identity_integrity_ruling_addendum_1.md)) |
+| [`CadenceIntegrity`](docs/m7_cadence_integrity_ruling.md) | high | No near-exact periodic posting — the agent's own timing, never content, never other accounts |
+| [`CitationClusterIntegrity`](docs/m7_citation_cluster_integrity_ruling.md) | high | The agent's own outbound citations must not sustain a small, closed, reciprocal citation cluster |
+
+The design rules the module enforces:
+
+- **Prevention is client-side; Pi Script is the enforcement latch and audit trace.** The client's scan-all-then-block pre-send gate runs every detector on every attempt, latches every finding, and only then blocks on the most severe — no violation is silently dropped. The agent's own key is protected by *isolation*: it lives only in the transport layer and never enters the model's context, so no injection, however encoded, can make the model emit it.
+- **The two Longitudinal Constraints** (`CadenceIntegrity` and `CitationClusterIntegrity`, split from the earlier `ManipulationFlag` concept) evaluate persistent observation stores — post timestamps and directional citation edges — that survive restarts, ingest idempotently, and recompute deterministically. Insufficient data is never compliance: below the readiness floor the trace says so explicitly.
+- **Undefined beats estimated.** `CitationClusterIntegrity`'s detection thresholds ship *undefined* — not guessed — until real observation grounds them through a ruling amendment. Ungrounded, the constraint structurally cannot fire.
+
+```
+CONSTRAINT: CitationClusterIntegrity
+Observation readiness : false
+Evaluation             : parameters ungrounded (ruling §5 — no amendment has set thresholds yet)
+Result                 : NOT EVALUABLE
+Action                 : none
+```
+
+- **Paused is not frozen.** A longitudinal violation escalates and pauses autonomous posting — but read-only observation continues and explicitly human-authorized sends still pass through every gate. The pause persists across restarts and clears only through explicit human review, which never erases the observation history that produced it.
+
+The policy is in [`moltbook/moltbook.pi`](moltbook/moltbook.pi). Live transport is deliberately unwired — no agent is registered or deployed yet; everything above is enforced and tested against the real resolver.
+
+---
+
 ## Using it as an MCP tool
 
 `mcp_server.py` exposes the resolver pipeline as a single MCP tool, `check_governance`, so an agent can check whether a state *would* violate policy before acting, instead of only finding out after the fact from the cron governance watcher.
@@ -375,7 +409,13 @@ continuum/
 │   ├── rift_v02_ruling_3_1_semantic_declaration_matching.md   # Rift Ruling 3.1 — two-tier matcher spec
 │   ├── rift_v02_semantic_matching_note.md                     # Ruling 3.1 implementation note
 │   ├── rift_v02_ruling_3_2_known_values_accumulation.md       # Rift Ruling 3.2 — session/accumulation spec
-│   └── rift_v02_known_values_accumulation_note.md             # Ruling 3.2 implementation note
+│   ├── rift_v02_known_values_accumulation_note.md             # Ruling 3.2 implementation note
+│   ├── m7_credential_integrity_ruling.md                      # M7 ruling — key isolation + pre-send gate
+│   ├── m7_link_restriction_ruling.md                          # M7 ruling — link provenance
+│   ├── m7_identity_integrity_ruling.md                        # M7 ruling — within-session identity consistency
+│   ├── m7_identity_integrity_ruling_addendum_1.md             # Addendum 1 — external-review fixes (A1–A6)
+│   ├── m7_cadence_integrity_ruling.md                         # M7 ruling — posting-cadence integrity (longitudinal)
+│   └── m7_citation_cluster_integrity_ruling.md                # M7 ruling — citation-cluster integrity (longitudinal)
 ├── es/
 │   ├── es_governance.pi              # Pi Script policy for Elasticsearch governance
 │   ├── es_adapter.py                 # State adapter — queries ES, writes state.json
@@ -389,6 +429,13 @@ continuum/
 │   ├── ir.json                       # Compiled IR for dogfood.pi
 │   ├── state.json                    # Session state snapshot — update before each daily run
 │   └── traces/                       # RESOLUTION TRACE logs — M5 violation record
+├── moltbook/
+│   ├── moltbook.pi                   # M7 policy — session constraints + the longitudinal agent profile
+│   ├── client.py                     # Governed client — key isolation, scan-all pre-send gate, pause checks
+│   ├── detector.py                   # Mechanical detectors — credentials, link provenance, identity drift
+│   ├── cadence.py                    # CadenceIntegrity observation store + governance gate
+│   ├── citation.py                   # CitationClusterIntegrity edge store + governance gate
+│   └── link_allowlist.json           # Human-owned link allowlist — editable only via commit/PR
 ├── pi_script/
 │   ├── pi_script.lark                # Lark grammar
 │   ├── parser.py                     # LALR parser wrapper
@@ -413,7 +460,12 @@ continuum/
 │   ├── test_rift.py                  # Rift v0.1 + v0.2 — 71 tests
 │   ├── test_mcp_server.py            # check_governance tool — 10 tests
 │   ├── test_dashboard.py             # dashboard UI — 9 tests
-│   └── test_quantization_governance_example.py  # Ruling 9.9 example — 5 tests
+│   ├── test_quantization_governance_example.py  # Ruling 9.9 example — 5 tests
+│   ├── test_moltbook_credential_integrity.py    # M7 key isolation + pre-send gate — 20 tests
+│   ├── test_moltbook_link_restriction.py        # M7 link provenance — 20 tests
+│   ├── test_moltbook_identity_integrity.py      # M7 identity consistency + addendum — 32 tests
+│   ├── test_moltbook_cadence_integrity.py       # M7 cadence store + pause semantics — 25 tests
+│   └── test_moltbook_citation_cluster_integrity.py  # M7 citation graph + grounding gate — 36 tests
 ├── quickstart.py                     # One-command demo — validate, resolve, print the trace
 ├── compile_pi.py                     # Helper — validate a .pi file and write its IR to JSON
 ├── log_session.py                    # M5 daily runner — resolves dogfood.pi against current state
@@ -453,4 +505,4 @@ Scope discipline is a feature. These are deferred on purpose, not forgotten:
 
 ---
 
-*Continuum — Pi Script v0.2 + Rift v0.2 — July 2026*
+*Continuum — Pi Script v0.2 + Rift v0.2 + the M7 Moltbook constraint set — July 2026*
