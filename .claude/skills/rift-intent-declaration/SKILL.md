@@ -41,7 +41,7 @@ match first, semantic fallback (all-MiniLM-L6-v2) if no exact match, never a sil
 
 ## Before extending the M7 draft
 The M7 draft intent declaration + constraint set (`IdentityIntegrity`, `LinkRestriction`,
-`CadenceIntegrity`, and pending-ruling `CitationClusterIntegrity` — the two halves of the
-`ManipulationFlag` split) already exists. Read it first. If you're adding a new constraint to
+`CadenceIntegrity`, and `CitationClusterIntegrity` — the two halves of the
+`ManipulationFlag` split, all with locked rulings) already exists. Read it first. If you're adding a new constraint to
 `generates`, write the constraint (see `pi-script-constraint` skill) before wiring it in here —
 not the other way around.

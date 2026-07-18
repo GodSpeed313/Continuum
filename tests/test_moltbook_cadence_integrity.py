@@ -105,7 +105,7 @@ class TestPolicy:
     def test_agent_profile_enforce_block(self):
         assert _ir()["enforce"] == {
             "MoltbookSession": ["CredentialIntegrity", "LinkRestriction", "IdentityIntegrity"],
-            "MoltbookAgentProfile": ["CadenceIntegrity"],
+            "MoltbookAgentProfile": ["CadenceIntegrity", "CitationClusterIntegrity"],
         }
 
 
