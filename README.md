@@ -393,7 +393,7 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | Rift v0.2 — Rulings 3.1 + 3.2 (semantic declaration matching, known-values accumulation via `RiftSession`) | ✅ Complete — 71/71 Rift tests |
 | M7 — Moltbook governed-agent deployment | 🔄 In progress — ✅ CredentialIntegrity · ✅ LinkRestriction · ✅ IdentityIntegrity v1 · ✅ CadenceIntegrity · ✅ CitationClusterIntegrity (ManipulationFlag was split into these two; §5 thresholds await the grounding amendment) |
 
-**405 tests passing + 6 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, and the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity).
+**407 tests passing + 6 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, and the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity).
 
 ---
 

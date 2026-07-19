@@ -2,6 +2,9 @@
 
 **Status:** LOCKED, signed off 2026-07-17. First of the two Longitudinal Constraints —
 establishes the persistent-state governance model that CitationClusterIntegrity will inherit.
+**Amended:** §5 is superseded by Amendment 1 (LOCKED 2026-07-19,
+`m7_cadence_integrity_ruling_amendment_1.md`) — J widened ±3s→±5s, other values grounded
+unchanged, FP/FN column contents corrected. Read §5 below through that amendment.
 
 **Numbering note:** No grammar change. One Form-2 equality_rule evaluation, gated by an
 application-level readiness check (not a separate Pi Script constraint) — application-level
