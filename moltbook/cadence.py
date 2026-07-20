@@ -47,7 +47,12 @@ from pi_script.resolver import resolve
 # Changing any of these values is a ruling amendment (§10), not a code change.
 MIN_READY_INTERVALS = 4            # §3: ready at 5 posts = 4 valid intervals in-window
 REQUIRED_CONSECUTIVE_INTERVALS = 5  # §5: N
-JITTER_TOLERANCE_SECONDS = 3.0      # §5: ±J ("near-exact"); run spread must fit within 2J
+JITTER_TOLERANCE_SECONDS = 5.0      # §5 as amended (Amendment 1, 2026-07-19): ±J; run spread
+                                    # must fit within 2J. Widened ±3→±5 from the 7/19 cohort
+                                    # grounding — real schedulers slip 6-17s, and ±3 sat at the
+                                    # timestamp quantization floor (false-negative on the
+                                    # flagship fixture). See
+                                    # docs/m7_cadence_integrity_ruling_amendment_1.md A1.2.
 ROLLING_WINDOW = timedelta(days=7)  # §5: matches the cohort re-sample cadence
 
 PAUSE_REASON_CADENCE = "CadenceIntegrity violation: near-periodic posting pattern (ruling §7)"

@@ -2,7 +2,8 @@
 test_moltbook_cadence_integrity.py — M7 CadenceIntegrity (first Longitudinal Constraint).
 
 Covers docs/m7_cadence_integrity_ruling.md (LOCKED 2026-07-17, incl. the post-lock
-grammar correction):
+grammar correction) and Amendment 1 (LOCKED 2026-07-19: J ±3s→±5s from the 7/19 cohort
+grounding — flagship-slip fires / noisy-scheduler stays clean pin the new bound):
     - moltbook.pi: CadenceIntegrity IR shape (on_violation: escalate, in-grammar) and the
       MoltbookAgentProfile enforce block alongside the session constraints.
     - Resolver pair: deliberate violation (escalated — distinct from frozen, §7) and clean
@@ -41,10 +42,17 @@ POLICY = Path(__file__).resolve().parents[1] / "moltbook" / "moltbook.pi"
 
 BASE = datetime(2026, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
 
-# §8 fixtures: five intervals each (six posts). Spread ≤ 2J = 6s fires; anything wider is clean.
+# §8 fixtures: five intervals each (six posts). Spread ≤ 2J = 10s fires (J = ±5s per
+# Amendment 1); anything wider is clean.
 PERIODIC = [180, 181, 179, 180, 182]           # the observed near-periodic pattern
 IRREGULAR = [180, 500, 90, 260, 400]           # organic spacing
 FREQUENT_IRREGULAR = [30, 90, 45, 120, 60]     # high frequency, no regularity
+# Amendment 1 (7/19 cohort) fixtures — real observed interval sequences:
+FLAGSHIP_SLIP = [181, 180, 182, 187, 180]      # neo_konsi_s2bw shape: metronome with a 187s
+                                               # scheduler slip; spread 7 — fires at ±5s,
+                                               # escaped ±3s (the confirmed false negative)
+NOISY_SCHEDULER = [180, 191, 171, 181, 179]    # vina's noisy stretch: spread 20 — stays
+                                               # clean; the widening did not over-reach
 
 
 def _ir():
@@ -138,7 +146,27 @@ class TestDetection:
         assert profile["cadence_observation_ready"] is True
         assert profile["cadence_anomaly"] is True
         assert profile["common_period_seconds"] == 180
-        assert 0 <= profile["max_jitter_seconds"] <= 3
+        assert 0 <= profile["max_jitter_seconds"] <= 5
+
+    def test_amendment1_flagship_slip_pattern_fires(self, tmp_path):
+        # Amendment 1 A1.2: the pattern that motivated the constraint — a metronome with
+        # a real scheduler slip (spread 7s) — must fire at ±5s. At the provisional ±3s
+        # (2J = 6s) this exact sequence escaped: the confirmed live false negative.
+        store = _store(tmp_path)
+        _ingest_seq(store, FLAGSHIP_SLIP)
+        profile = store.profile_state()
+        assert profile["cadence_anomaly"] is True
+        assert profile["common_period_seconds"] == 184  # midrange of 180..187, rounded
+        assert profile["max_jitter_seconds"] <= 5
+
+    def test_amendment1_noisy_scheduler_stays_clean(self, tmp_path):
+        # Amendment 1 A1.2 clean-pass twin: a noisier stretch from the same cohort
+        # (spread 20s) must NOT fire — the widening to ±5s did not over-reach.
+        store = _store(tmp_path)
+        _ingest_seq(store, NOISY_SCHEDULER)
+        profile = store.profile_state()
+        assert profile["cadence_observation_ready"] is True
+        assert profile["cadence_anomaly"] is False
 
     def test_irregular_spacing_stays_clean(self, tmp_path):
         store = _store(tmp_path)
