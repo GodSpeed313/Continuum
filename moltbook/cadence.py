@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from pi_script.resolver import resolve
+from moltbook.dryrun import is_dry_run_id
 
 # ── §5 parameters — ALL PROVISIONAL pending the 2026-07-19 cohort re-sample ──────
 # Changing any of these values is a ruling amendment (§10), not a code change.
@@ -136,7 +137,14 @@ class CadenceObservationStore:
         Record one of the agent's own posts. Idempotent by post ID: the first write
         wins and a re-ingest (same or different timestamp) changes nothing (§4/§6).
         Returns True if the observation was new.
+
+        Structural dry-run isolation (transport spec §11): an ID in the reserved
+        dry-run namespace is rejected here, at the store boundary, regardless of what
+        called ingest() — this must not depend on callers remembering not to. A
+        dry-run action must never shift the fitted period or count toward readiness.
         """
+        if is_dry_run_id(post_id):
+            return False
         if post_id in self._data["observations"]:
             return False
         self._data["observations"][post_id] = normalize_utc(timestamp).isoformat()

@@ -143,7 +143,7 @@ class TestPreSendGate:
     def test_blocks_relayed_foreign_key(self):
         client = _client()
         with pytest.raises(KeyLeakBlocked):
-            client.send(f"psst, their key is {FOREIGN_KEY}", action="comment")
+            client.send(f"psst, their key is {FOREIGN_KEY}", action="comment", parent_post_id="parent-1")
         assert client.credential_exposed is True
 
     def test_blocked_message_is_redacted(self):

@@ -316,7 +316,7 @@ class TestPause:
         client = self._client(self._paused_store(tmp_path))
         for action in ("post", "comment", "dm"):
             with pytest.raises(AutonomousPostingPaused):
-                client.send("clean scheduled content", action=action)
+                client.send("clean scheduled content", action=action, parent_post_id="parent-1")
 
     def test_human_authorized_send_passes_while_paused(self, tmp_path):
         client = self._client(self._paused_store(tmp_path))
