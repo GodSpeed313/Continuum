@@ -778,6 +778,12 @@ is not addressed here.
 
 # Implementation Note B: Captcha Verification (2026-07-20, non-binding)
 
+**Partially superseded 2026-07-21: the issuance seam this note left to deployment wiring
+(`fetch_captcha_challenge`) is retired by Implementation Note E below — the live platform issues
+the challenge inside the write response, not via any standalone fetch. Note B's core framing
+(captcha as a transport-mechanical publishing precondition, never a governed action or its own
+envelope) stands unchanged; the original text below is preserved for the audit trail.**
+
 **This is an implementation note, not an amendment. The spec above remains LOCKED as of
 2026-07-20 and this note does not reopen, modify, or supersede any numbered section.** It exists
 to record a clarification discovered mid-implementation — Moltbook requires solving an obfuscated
@@ -997,3 +1003,168 @@ Same status as Notes A/B: transport-mechanical, no numbered section amended, no 
   note; condition (b) — scheduling behavior explicitly specified — remains unmet, so automated
   retry remains disabled. `RATE_LIMITED` is still report-only, now with the wait-time facts
   attached.
+
+---
+
+# Implementation Note E: Captcha Issuance Protocol (2026-07-21, non-binding; SIGNED OFF)
+
+**Status: signed off 2026-07-21** (drafted and reviewed same day). Same non-binding status as
+Notes A/B/D — transport-mechanical, no numbered section amended. It supersedes Note B's issuance
+seam (`fetch_captcha_challenge`) but leaves Note B's core framing — captcha as a
+transport-mechanical precondition, never a governed action or its own envelope — intact. This
+note is spec only; the implementation pass follows separately and must match it.
+
+**Discovery provenance (2026-07-21):** the live `moltbook.com/skill.md` now documents the full
+issuance protocol that the repo's `docs/moltbook_api_spec.md` §7 "Open Items" flagged as
+unresolved. Discovery required zero live API calls — a verbatim capture of the updated skill.md
+was taken 2026-07-21 and is the sole source for everything below. Nothing here was inferred from
+probing, and nothing has yet been confirmed against a live write.
+
+## The observed protocol (why Note B's seam cannot represent it)
+
+There is **no standalone issuance endpoint**. The write itself issues the challenge:
+
+1. `POST /api/v1/posts` (or `/posts/{id}/comments`, `/submolts`) succeeds immediately — the
+   content is created in a hidden `pending` state (`verification_status: "pending"`).
+2. The challenge arrives **inside the write response**: `post.verification` carrying
+   `verification_code`, obfuscated `challenge_text`, `expires_at`, `instructions`.
+3. The answer goes to `POST /api/v1/verify` as `{verification_code, answer}`. Success publishes
+   the content. Documented failures: incorrect answer (with hint), `410` expired code, `404`
+   invalid code, `409` code already used.
+4. **Trusted agents/admins may receive no `verification` block at all** — the content publishes
+   immediately off the write.
+
+Note B's flow (fetch challenge → solve → submit → *then* transmit the write) is inverted relative
+to reality: verification gates **publication, not transmission**. The `fetch_captcha_challenge()`
+pre-write callback has nothing real to represent and is retired, not adapted.
+
+## Proposed binding content
+
+**1. Flow reorder and seam change.** `send()` becomes: transmit the write → parse the
+`verification` block from the write response (if present) → solve → submit via `submit_fn` →
+classify the final outcome. `fetch_captcha_challenge` is removed from the constructor and from
+`send()` — retired entirely, no deprecation shim, for the same no-second-live-shape reasoning as
+Note D. The submission seam survives with its key renamed: `submit_fn(verification_code, answer)`.
+
+**`verification_code` fully replaces `challenge_id` as the lookup key — contract-wide, not a
+call-site rename.** Enumerated consumers of `challenge_id` today, every one of which switches to
+`verification_code`: the `submit_fn` call (`transport.py` CaptchaVerifier.verify), the
+`CaptchaChallenge` dataclass field, the `CaptchaAttemptRecord` binding field (failure tracking),
+the kill-switch `captcha_suspension_risk` activation's structured audit `extra`, and the
+`CaptchaVerificationFailed`/`CaptchaVerificationAmbiguous` exception messages raised from
+`send()`. If implementation turns up any consumer not on this list, that's a stop-and-report,
+not a silent addition.
+
+**2. Three independent status fields — no single "success".** The write response can no longer be
+collapsed into one outcome. `TransportResult` (or a captcha-specific result carried by it) gains
+three fields, each answering a different question, none derivable from the others:
+
+* `transmission_status` — did the write reach the platform at all (the §8 taxonomy's existing
+  concern, unchanged).
+* `publication_status` — is the content actually public: `PENDING_VERIFICATION` /
+  `PUBLISHED` / `NOT_PUBLISHED` (verification failed or expired; the platform documents no
+  publication path for that content — a fresh write with a fresh challenge is the only recovery).
+* `verification_status` — `REQUIRED` / `PASSED` / `FAILED` / `EXPIRED` / `NOT_REQUIRED`.
+
+The trusted-agent immediate-publish path is **first-class**: `verification_status=NOT_REQUIRED`
+with `publication_status=PUBLISHED` directly off the write response, not a degenerate case folded
+into either of the other paths. The documented detector is the *absence* of the `verification`
+block / `verification_required: true` — its absence is a positive, classifiable fact.
+
+**3. Expiry is read, never assumed.** Challenge expiry comes exclusively from the response's
+`expires_at` field. The documented windows (5 minutes for posts/comments, 30 seconds for
+submolts) differ by content type and are context only — no constant anywhere encodes either
+number. `CaptchaChallenge.expires_at` already exists and simply starts being populated from the
+platform's value instead of a caller-invented one.
+
+**4. Threshold relationship stated precisely.** Continuum's `captcha_suspension_risk` trigger
+fires on the **3rd consecutive platform-confirmed failure**. The platform suspends when the
+**last 10 attempts are all failures (expired or incorrect)**. These are different rules over
+different windows: ours is consecutive-confirmed-only (ambiguous outcomes never count, success
+resets), theirs is a trailing-10 window that counts expiry as failure. Ours is deliberately the
+stricter margin by design — it is NOT equivalent to, a mapping of, or an approximation of the
+platform rule, and no text or trace may describe it as such. The platform rule is recorded here
+as context for why a conservative margin exists at all.
+
+**5. No timing synthesis — existing rules unchanged.** Verification requests are subject to the
+same no-guessed-timing / no-autonomous-retry rules as every other transport action (§2, Note C).
+The documented "30 verification attempts per minute" limit is context only — it is not
+permission to synthesize pacing, spacing, sleeping, or scheduling logic, and no implementation
+of this note may contain any. Only observed response metadata surfaced under the existing
+rate-limit contract (Note D's `RateLimitInfo`, populated from real response headers) could ever
+inform timing behavior, and then only once Note C's condition (b) — an explicit scheduling
+spec — exists. It still does not.
+
+**6. Consumer analysis: the new status fields are transport-visible only.** Checked 2026-07-21
+against the working tree, looking for any existing consumer that equates transmission success
+with publication:
+
+* `MoltbookClient.send()` returns the transport's result dict verbatim to its caller; it takes
+  no action keyed on outcome. The cadence/citation stores are consulted pre-send for `paused`
+  only — **ingestion is observation-driven (feed reads), never keyed off a TransportOutcome** —
+  so no store records a "post happened" fact from a transport success today.
+* The Pi Script resolver and every M7 constraint consume latch/state fields
+  (`credential_exposed`, `link_violation`, `identity_drift`, cadence/citation store state) —
+  none derive from `TransportOutcome`.
+* `reconcile()`/`resolve_ambiguous_write()` gate on `OUTCOME_UNKNOWN` only.
+* The two surfaces that expose "success" outward — `as_client_transport`'s returned dict
+  (`"outcome": "success"`) and `DryRunTransport.simulated_outcome` — have no downstream
+  consumer that interprets them further today.
+
+Conclusion: **no existing resolver, constraint, audit, cadence, or reconciliation logic equates
+transmission with publication**, so the three status fields land as transport-visible facts with
+no governance semantics attached by this note. Two mechanical follow-ons are in-scope for the
+implementation (not layer questions): `as_client_transport`'s dict must carry the new fields
+(additively), and `DryRunTransport` must decide what a simulated verification/publication status
+is. If a future constraint wants to *consume* publication status (e.g. cadence observations
+distinguishing published from pending-never-published posts), that is a governance question for
+its own ruling — explicitly not resolved here.
+
+**7. Fail-closed configuration, reshaped for the no-fetch seam.** With `fetch_captcha_challenge`
+retired, the captcha configuration surface is exactly two pieces: `captcha_verifier` and
+`submit_captcha_fn`. The constructor invariant: **both configured, or neither.** Any partial
+configuration raises `ValueError` at construction — never a latent crash after a live challenge
+has already been issued (the failure mode the old three-optional constructor permitted, observed
+live in `send()`'s guard which never checked `submit_captcha_fn`). Unconfigured remains legal
+and means: a write that comes back `PENDING_VERIFICATION` is left pending — reported outward as
+exactly that, never silently dropped, never guessed at.
+
+**8. Reference-doc and fixture updates (part of this note's implementation).**
+`docs/moltbook_api_spec.md` §7's "Open Items" entry for issuance is resolved from the 2026-07-21
+capture (with a dated pointer, same audit-trail style as §8/Note C — the original open-item text
+stays visible). The captured write-response and verify-response shapes land as a checked-in
+fixture for tests, **redacted before commit**: `verification_code` values, the obfuscated
+`challenge_text` (its structure is described, its literal text replaced — it is
+platform-generated content of unknown entropy), and any account-identifying fields (IDs, names,
+karma) are replaced with synthetic placeholders. Response *structure* — field names, nesting,
+status values — is preserved byte-faithful.
+
+## Required test coverage (implementation pass)
+
+* Full captcha configuration accepted; empty configuration accepted; each partial configuration
+  rejected at construction (fail-closed).
+* Write response with `verification` block → challenge parsed from the real fixture shape (not
+  an assumed one); solve + submit flow runs; `PASSED` → `PUBLISHED` with exactly the one write
+  and one verify call.
+* Confirmed verification failure → `NOT_PUBLISHED`, failure count increments, third consecutive
+  fires `captcha_suspension_risk` (existing threshold tests adapt to the new flow).
+* Ambiguous submit outcome → write stays `PENDING_VERIFICATION`, failure count does NOT
+  increment, no retry.
+* Trusted-agent path: no `verification` block → `NOT_REQUIRED` + `PUBLISHED`, zero verify calls.
+* `verification_code` binding preserved across the attempt record / audit extra / exception
+  surfaces; a code is never reused across actions (platform 409 documented) and never reused
+  after a terminal outcome.
+* Expiry honored from `expires_at` only — a fixture with a non-default window must flow through
+  with no constant interfering.
+* No pacing/scheduling logic exists: exactly one verify call per solved challenge, regardless of
+  documented per-minute limits.
+
+## Stop conditions carried into implementation
+
+* If the live write-response shape contradicts the skill.md capture (fields missing, different
+  nesting), stop and re-fixture — do not bridge the gap with guesses.
+* If `submit_fn(verification_code, answer)` proves unable to represent the live protocol (e.g.
+  submission turns out to need the content ID as well), stop and amend this note — do not
+  silently widen the seam.
+* First live observation requires a real write; that write is itself a governed action needing
+  its own approved envelope and operator go-ahead — this note does not authorize it.

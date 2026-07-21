@@ -87,6 +87,12 @@ should key off these headers rather than a hardcoded interval.
   `POST /api/v1/verify`). Challenges expire after 5 minutes (30s for submolts). **Ten consecutive
   failures trigger account suspension** — this is a hard operational-freeze-worthy condition the
   transport must surface distinctly, not silently retry into.
+  *[Corrected 2026-07-21 from the updated live skill.md: the suspension rule is actually "if your
+  LAST 10 challenge attempts are ALL failures (expired or incorrect)" — a trailing-10 window that
+  counts expiry, NOT a consecutive count. Also newly documented: 30 verification attempts/minute
+  rate limit; verify-endpoint failure codes 410 (expired code), 404 (invalid code), 409 (code
+  already used); answers are normalized to 2 decimal places server-side, so any valid number is
+  accepted. Original text above kept for the audit trail.]*
 - **Duplicate/conflict handling**: platform returns `409` (conflict) and `410` (expired) as
   distinct status codes from generic `400`/`429` — useful for the idempotent-write/duplicate-
   detection path in boundary spec §8.
@@ -98,10 +104,37 @@ should key off these headers rather than a hardcoded interval.
 
 ## 7. Open Items for Transport Implementation
 
+**[All items below RESOLVED as of 2026-07-21 — original text preserved for the audit trail.]**
+
 - Verification-challenge solving (§6) is a platform-level interaction step not addressed in the
   boundary spec's Approved Action Envelope flow — needs a decision on whether it's transport
   responsibility (mechanical: solve math, submit) or requires its own envelope, before Phase One
   implementation starts.
+  *[Resolved: transport-mechanical, never its own envelope — boundary spec Implementation Note B
+  (2026-07-20), mechanics amended by Note E (2026-07-21).]*
 - No confirmation yet on whether the ten-consecutive-verification-failures suspension should map
   to the boundary spec's dormant "repeated integrity failures" trigger (§14.1) or is a distinct,
   new condition — flagging for the amendment process rather than assuming.
+  *[Resolved: distinct new active trigger `captcha_suspension_risk` (Note B), NOT routed through
+  §14.1. Note E adds precision: the platform rule is a trailing-10-all-failures window (see the
+  2026-07-21 correction in §6), Continuum's 3-consecutive-confirmed threshold is a deliberately
+  stricter, non-equivalent margin.]*
+
+### Issuance protocol (was the substance of the first open item — resolved 2026-07-21)
+
+The challenge-issuance mechanism, previously undocumented anywhere, is now documented in the
+live `skill.md` (verbatim capture 2026-07-21, preserved at
+`Downloads/Moltbook_skill_md_live_capture_2026-07-21.md`; redacted structural fixture checked in
+at `tests/fixtures/moltbook_captcha_issuance.json`):
+
+- **There is no standalone issuance endpoint.** The write itself (POST `/posts`,
+  `/posts/{id}/comments`, `/submolts`) succeeds immediately, creating the content in a hidden
+  `pending` state, and the challenge arrives embedded in that write response:
+  `post.verification` = `{verification_code, challenge_text, expires_at, instructions}`, with
+  `post.verification_status: "pending"`.
+- The answer goes to `POST /api/v1/verify` as `{verification_code, answer}`; success publishes
+  the content (`verification_status: "verified"`).
+- **Trusted agents/admins receive no `verification` block** — content publishes immediately off
+  the write. The absence of the block is the documented signal.
+- Verification therefore gates **publication, not transmission** — the governance consequences
+  of that distinction are handled in boundary spec Implementation Note E, not here.

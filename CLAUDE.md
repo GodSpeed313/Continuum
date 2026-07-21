@@ -27,7 +27,7 @@ under 200 lines — anything longer belongs in a skill, not here.
   runtime (see `.claude/skills/rift-intent-declaration`)
 - `es/` — Elasticsearch adapter, canonical example of the Layer-1-to-Pi-Script adapter pattern
 - `m5/` — M5 dogfood policy, state, and traces (reference for the adapter/dogfood pattern)
-- `tests/` — pytest suite, 491 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
+- `tests/` — pytest suite, 508 passing + 7 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
 - `docs/` — grammar specs and rulings; source of truth per spec-first principle
 - `mcp_server.py` — exposes the resolver pipeline as an MCP tool, `check_governance`
 - No top-level `traces/`. Traces write to a `traces/` directory sibling to whatever `state_path`
@@ -83,7 +83,15 @@ exhaustive `RetryCategory` consumer (loud `ValueError` on any unrecognized categ
 default). Per Implementation Note D the `request_fn` seam returns `HTTPResponse` (status, body,
 headers — lowercased keys), NOT the old `(status, body)` tuple, with `Retry-After`/`X-RateLimit-*`
 surfaced as typed `RateLimitInfo` on `TransportResult` — capture only, no scheduling/sleeping/
-auto-retry anywhere (Note C's condition (b), a scheduling spec, remains unmet). Remaining before
-live deployment: the manual `MOLTBOOK_API_KEY` env step is done, but `fetch_captcha_challenge`'s
-real issuance flow is the one unresolved gap — the issuance protocol has never been observed
-against the live API (only answer submission, `POST /api/v1/verify`, is documented).
+auto-retry anywhere (Note C's condition (b), a scheduling spec, remains unmet). Per Implementation
+Note E (signed off 2026-07-21, after the live skill.md documented the issuance protocol): the
+WRITE issues the challenge inside its own response (no standalone endpoint —
+`fetch_captcha_challenge` is retired, fail-closed invariant requires verifier+submit both-or-
+neither), verification gates PUBLICATION not transmission, `verification_code` replaced
+`challenge_id` contract-wide, and `TransportResult` carries three independent statuses
+(transmission via `outcome`, `publication_status`, `verification_status` — trusted-agent
+immediate-publish is first-class NOT_REQUIRED+PUBLISHED). Redacted protocol fixture:
+`tests/fixtures/moltbook_captcha_issuance.json`. Both former live-deployment engineering blockers
+are now closed — remaining known gap is the solver vs. the documented word-number obfuscation
+style (xfail-pinned); first live post is a go decision plus its own governed envelope, not an
+engineering blocker.

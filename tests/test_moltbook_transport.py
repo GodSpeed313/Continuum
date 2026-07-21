@@ -66,15 +66,18 @@ from moltbook.transport import (
     KillSwitchEngaged,
     MoltbookHTTPTransport,
     OperationalFreeze,
+    PublicationStatus,
     RateLimitInfo,
     ReconciliationOutcome,
     RetryCategory,
     TransportOutcome,
     TransportResult,
+    VerificationStatus,
     as_client_transport,
     canonical_payload_hash,
     describe_retry_category,
     make_dry_run_action_id,
+    parse_verification_block,
     reconcile,
     resolve_ambiguous_write,
     solve_captcha_deterministic,
@@ -817,27 +820,48 @@ class TestReplyParentIdentifier:
             client_transport(action="dm", content="hi", headers={})
 
 
-# ───────────────── Implementation Note B: captcha verification ─────────────────
+# ──────────── Implementation Notes B + E: captcha verification ─────────────────
+
+import copy
+import json as _json
+from pathlib import Path
+
+CAPTCHA_FIXTURE = _json.loads(
+    (Path(__file__).parent / "fixtures" / "moltbook_captcha_issuance.json")
+    .read_text(encoding="utf-8")
+)
 
 CAPTCHA_PROMPT = "What is 12 plus 3.00?"
 
 
-def _challenge(challenge_id: str = "chal-1") -> CaptchaChallenge:
+def _challenge(verification_code: str = "moltbook_verify_test1") -> CaptchaChallenge:
     return CaptchaChallenge(
-        challenge_id=challenge_id, prompt=CAPTCHA_PROMPT,
+        verification_code=verification_code, prompt=CAPTCHA_PROMPT,
         expires_at=BASE + timedelta(minutes=5),
     )
 
 
-def _confirmed_success(_challenge_id, _answer):
-    return CaptchaOutcome.CONFIRMED_SUCCESS, {"success": True}
+def _challenge_write_body(*, expires_in_seconds: int = 300, verification_code: str | None = None) -> dict:
+    """The fixture's captured write-response shape (Note E), with expires_at moved
+    to a live future instant so flow tests exercise the real path — structure stays
+    exactly the fixture's."""
+    body = copy.deepcopy(CAPTCHA_FIXTURE["write_response_with_challenge"])
+    expires = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
+    body["post"]["verification"]["expires_at"] = expires.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    if verification_code is not None:
+        body["post"]["verification"]["verification_code"] = verification_code
+    return body
 
 
-def _confirmed_failure(_challenge_id, _answer):
-    return CaptchaOutcome.CONFIRMED_FAILURE, {"success": False, "error": "wrong answer"}
+def _confirmed_success(_verification_code, _answer):
+    return CaptchaOutcome.CONFIRMED_SUCCESS, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"])
 
 
-def _ambiguous(_challenge_id, _answer):
+def _confirmed_failure(_verification_code, _answer):
+    return CaptchaOutcome.CONFIRMED_FAILURE, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_failure"])
+
+
+def _ambiguous(_verification_code, _answer):
     return CaptchaOutcome.AMBIGUOUS, None
 
 
@@ -847,12 +871,29 @@ class TestCaptchaSolver:
         assert solve_captcha_deterministic("12 plus 3.00") == solve_captcha_deterministic("12 plus 3.00")
 
     def test_thresholds_are_distinct_and_documented(self):
-        """Continuum's margin must stay strictly under Moltbook's documented limit —
-        the whole point of Implementation Note B is that 3 is conservative relative
-        to a platform-grounded 10, not an independently invented number."""
+        """Continuum's margin must stay strictly under Moltbook's documented limit.
+        Note E precision: these are DIFFERENT rules over DIFFERENT windows (ours:
+        consecutive confirmed only; theirs: trailing-10, expiry counted) — the
+        numeric comparison here proves the margin, not an equivalence."""
         assert CAPTCHA_LOCAL_FAILURE_THRESHOLD == 3
         assert PLATFORM_CAPTCHA_SUSPENSION_LIMIT == 10
         assert CAPTCHA_LOCAL_FAILURE_THRESHOLD < PLATFORM_CAPTCHA_SUSPENSION_LIMIT
+
+    @pytest.mark.xfail(
+        reason="known solver gap (Note B best-effort caveat, now with observed shape): "
+        "the documented challenge example uses obfuscated WORD numbers "
+        "('tW]eNn-Tyy', 'fI[vE') which the digit-regex solver cannot extract — "
+        "extending the solver makes this xpass and forces this pin to update",
+        strict=True,
+    )
+    def test_solver_handles_documented_word_number_obfuscation(self):
+        """The live skill.md example verbatim: 'twenty meters... slows by five' → 15.00,
+        written in the platform's alternating-caps scattered-symbol style."""
+        documented_example = (
+            "A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE, "
+            "wH-aTs] ThE/ nEw^ SpE[eD?"
+        )
+        assert solve_captcha_deterministic(documented_example) == "15.00"
 
 
 class TestCaptchaVerifier:
@@ -891,7 +932,7 @@ class TestCaptchaVerifier:
         assert entry.extra["local_threshold"] == CAPTCHA_LOCAL_FAILURE_THRESHOLD
         assert entry.extra["platform_suspension_limit"] == PLATFORM_CAPTCHA_SUSPENSION_LIMIT
         assert entry.extra["action_id"] == env.action_id
-        assert entry.extra["challenge_id"] == "c2"
+        assert entry.extra["verification_code"] == "c2"
 
     def test_successful_verification_resets_the_counter(self):
         kill_switch = KillSwitch()
@@ -956,77 +997,262 @@ class TestCaptchaVerifier:
         assert not hasattr(entry, "entity_state")
         assert not hasattr(entry, "on_violation")
 
-    def test_attempt_binds_action_and_challenge_identifiers(self):
+    def test_attempt_binds_action_and_verification_code_identifiers(self):
+        """Note E: verification_code replaced challenge_id contract-wide — the
+        attempt record, the audit extra, and the submit call all key on it."""
         kill_switch = KillSwitch()
         verifier = CaptchaVerifier(kill_switch)
         env = _envelope()
-        verifier.verify(env, _challenge("c1"), submit_fn=_confirmed_success)
+        submitted = {}
+        def _capture_submit(verification_code, answer):
+            submitted["code"] = verification_code
+            return CaptchaOutcome.CONFIRMED_SUCCESS, {"success": True}
+        verifier.verify(env, _challenge("c1"), submit_fn=_capture_submit)
         record = verifier.log[-1]
         assert record.action_id == env.action_id
         assert record.approval_trace_id == env.approval_trace_id
-        assert record.challenge_id == "c1"
+        assert record.verification_code == "c1"
+        assert submitted["code"] == "c1"  # the submit seam received the same key
 
 
-class TestCaptchaTransportIntegration:
-    def test_send_blocked_on_confirmed_captcha_failure(self):
-        from moltbook.transport import CaptchaVerificationFailed
+def _captcha_transport(submit_fn, *, request_fn=None, kill_switch=None):
+    """A transport with the Note E captcha surface fully configured (both pieces —
+    the fail-closed invariant allows nothing in between)."""
+    kill_switch = kill_switch or KillSwitch()
+    return MoltbookHTTPTransport(
+        "key",
+        request_fn=request_fn or (lambda m, p, b, h: HTTPResponse(200, _challenge_write_body())),
+        live_config_version=CONFIG_V1,
+        kill_switch=kill_switch,
+        captcha_verifier=CaptchaVerifier(kill_switch),
+        submit_captcha_fn=submit_fn,
+    )
+
+
+class TestNoteEFailClosedConfiguration:
+    def test_full_captcha_configuration_accepted(self):
         kill_switch = KillSwitch()
-        transport = MoltbookHTTPTransport(
-            "key", request_fn=_fake_request(200), live_config_version=CONFIG_V1,
-            kill_switch=kill_switch,
+        MoltbookHTTPTransport(
+            "key", live_config_version=CONFIG_V1, kill_switch=kill_switch,
             captcha_verifier=CaptchaVerifier(kill_switch),
-            fetch_captcha_challenge=lambda: _challenge(),
-            submit_captcha_fn=_confirmed_failure,
-        )
-        with pytest.raises(CaptchaVerificationFailed):
-            transport.send(_envelope())
-
-    def test_send_blocked_on_ambiguous_captcha_response(self):
-        from moltbook.transport import CaptchaVerificationAmbiguous
-        kill_switch = KillSwitch()
-        transport = MoltbookHTTPTransport(
-            "key", request_fn=_fake_request(200), live_config_version=CONFIG_V1,
-            kill_switch=kill_switch,
-            captcha_verifier=CaptchaVerifier(kill_switch),
-            fetch_captcha_challenge=lambda: _challenge(),
-            submit_captcha_fn=_ambiguous,
-        )
-        with pytest.raises(CaptchaVerificationAmbiguous):
-            transport.send(_envelope())
-        assert not kill_switch.engaged
-
-    def test_send_proceeds_on_confirmed_captcha_success(self):
-        captured = {}
-        def _capture(method, path, body, headers):
-            captured["called"] = True
-            return HTTPResponse(200, {"id": "p1"})
-        kill_switch = KillSwitch()
-        transport = MoltbookHTTPTransport(
-            "key", request_fn=_capture, live_config_version=CONFIG_V1,
-            kill_switch=kill_switch,
-            captcha_verifier=CaptchaVerifier(kill_switch),
-            fetch_captcha_challenge=lambda: _challenge(),
             submit_captcha_fn=_confirmed_success,
+        )  # no raise
+
+    def test_no_captcha_configuration_accepted(self):
+        MoltbookHTTPTransport("key", live_config_version=CONFIG_V1)  # no raise
+
+    def test_verifier_without_submit_rejected_at_construction(self):
+        kill_switch = KillSwitch()
+        with pytest.raises(ValueError, match="partial captcha configuration"):
+            MoltbookHTTPTransport(
+                "key", live_config_version=CONFIG_V1, kill_switch=kill_switch,
+                captcha_verifier=CaptchaVerifier(kill_switch),
+            )
+
+    def test_submit_without_verifier_rejected_at_construction(self):
+        with pytest.raises(ValueError, match="partial captcha configuration"):
+            MoltbookHTTPTransport(
+                "key", live_config_version=CONFIG_V1,
+                submit_captcha_fn=_confirmed_success,
+            )
+
+    def test_fetch_captcha_challenge_is_retired(self):
+        """Note E: no standalone issuance endpoint exists, so no fetch seam does
+        either — passing the old kwarg fails loudly rather than being ignored."""
+        with pytest.raises(TypeError):
+            MoltbookHTTPTransport(
+                "key", live_config_version=CONFIG_V1,
+                fetch_captcha_challenge=lambda: _challenge(),
+            )
+
+
+class TestNoteEVerificationBlockParsing:
+    def test_fixture_write_response_parses_to_challenge(self):
+        """The checked-in fixture IS the captured protocol shape — parsing it, not
+        an assumed structure, is the whole point (Note E)."""
+        challenge = parse_verification_block(CAPTCHA_FIXTURE["write_response_with_challenge"])
+        assert challenge is not None
+        assert challenge.verification_code == "moltbook_verify_SYNTHETIC0000000000000000"
+        assert "pLuS" in challenge.prompt
+        assert challenge.expires_at == datetime(2026, 7, 21, 12, 5, 0, tzinfo=timezone.utc)
+
+    def test_trusted_fixture_response_parses_to_none(self):
+        """Absence of the verification block is the documented trusted-agent signal —
+        a positive fact, returned as None, never an error."""
+        assert parse_verification_block(CAPTCHA_FIXTURE["write_response_trusted_no_challenge"]) is None
+
+    def test_malformed_verification_block_raises_loudly(self):
+        """Note E stop condition: a block that exists but contradicts the captured
+        shape means re-fixture, not guess — it must never parse permissively."""
+        body = {"post": {"id": "x", "verification": {"verification_code": "only-this"}}}
+        with pytest.raises(ValueError, match="does not match"):
+            parse_verification_block(body)
+
+    def test_non_iso_expires_at_raises_loudly(self):
+        body = {"post": {"verification": {
+            "verification_code": "c", "challenge_text": "t", "expires_at": "five minutes from now",
+        }}}
+        with pytest.raises(ValueError, match="not ISO-8601"):
+            parse_verification_block(body)
+
+
+class TestNoteECaptchaFlow:
+    def test_passed_verification_publishes_with_one_write_and_one_verify(self):
+        write_calls, verify_calls = [], []
+        def _request(method, path, body, headers):
+            write_calls.append(path)
+            return HTTPResponse(200, _challenge_write_body())
+        def _submit(code, answer):
+            verify_calls.append((code, answer))
+            return CaptchaOutcome.CONFIRMED_SUCCESS, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"])
+        transport = _captcha_transport(_submit, request_fn=_request)
+        result = transport.send(_envelope())
+        assert result.outcome is TransportOutcome.SUCCESS
+        assert result.publication_status is PublicationStatus.PUBLISHED
+        assert result.verification_status is VerificationStatus.PASSED
+        assert len(write_calls) == 1 and len(verify_calls) == 1
+        # The solver solved the fixture's synthetic obfuscated prompt (12 plus 3).
+        assert verify_calls[0][1] == "15.00"
+
+    def test_confirmed_failure_classifies_not_published_and_counts(self):
+        """Note E: the write already happened — a failed verification is a classified
+        fact (NOT_PUBLISHED/FAILED) on the result, not an exception."""
+        transport = _captcha_transport(_confirmed_failure)
+        result = transport.send(_envelope())
+        assert result.outcome is TransportOutcome.SUCCESS  # transmission DID succeed
+        assert result.publication_status is PublicationStatus.NOT_PUBLISHED
+        assert result.verification_status is VerificationStatus.FAILED
+        assert transport.captcha_verifier.consecutive_confirmed_failures == 1
+
+    def test_third_consecutive_failure_fires_trigger_and_blocks_next_send(self):
+        kill_switch = KillSwitch()
+        transport = _captcha_transport(_confirmed_failure, kill_switch=kill_switch)
+        for _ in range(CAPTCHA_LOCAL_FAILURE_THRESHOLD):
+            result = transport.send(_envelope())
+            assert result.verification_status is VerificationStatus.FAILED
+        entry = kill_switch.activation_log[-1]
+        assert entry.trigger == "captcha_suspension_risk"
+        assert entry.extra["verification_code"] == "moltbook_verify_SYNTHETIC0000000000000000"
+        # A wholly separate write attempt is now blocked at the kill-switch boundary.
+        with pytest.raises(KillSwitchEngaged):
+            transport.send(_envelope())
+
+    def test_ambiguous_verification_stays_pending_uncounted_unretried(self):
+        verify_calls = []
+        def _submit(code, answer):
+            verify_calls.append(code)
+            return CaptchaOutcome.AMBIGUOUS, None
+        transport = _captcha_transport(_submit)
+        result = transport.send(_envelope())
+        assert result.publication_status is PublicationStatus.PENDING_VERIFICATION
+        assert result.verification_status is VerificationStatus.REQUIRED
+        assert transport.captcha_verifier.consecutive_confirmed_failures == 0
+        assert len(verify_calls) == 1  # exactly one attempt — never retried
+
+    def test_trusted_agent_path_is_first_class(self):
+        """No verification block → NOT_REQUIRED + PUBLISHED directly off the write,
+        with ZERO verify calls (Note E: a first-class case, not a degenerate one)."""
+        verify_calls = []
+        def _submit(code, answer):
+            verify_calls.append(code)
+            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+        transport = _captcha_transport(
+            _submit,
+            request_fn=lambda m, p, b, h: HTTPResponse(
+                200, copy.deepcopy(CAPTCHA_FIXTURE["write_response_trusted_no_challenge"])),
+        )
+        result = transport.send(_envelope())
+        assert result.publication_status is PublicationStatus.PUBLISHED
+        assert result.verification_status is VerificationStatus.NOT_REQUIRED
+        assert verify_calls == []
+
+    def test_unconfigured_captcha_leaves_content_pending_reported_exactly(self):
+        """Note E point 7: unconfigured is legal — a pending write is reported as
+        exactly that, never guessed at, never silently dropped."""
+        transport = MoltbookHTTPTransport(
+            "key", live_config_version=CONFIG_V1,
+            request_fn=lambda m, p, b, h: HTTPResponse(200, _challenge_write_body()),
         )
         result = transport.send(_envelope())
         assert result.outcome is TransportOutcome.SUCCESS
-        assert captured.get("called") is True
+        assert result.publication_status is PublicationStatus.PENDING_VERIFICATION
+        assert result.verification_status is VerificationStatus.REQUIRED
 
-    def test_third_consecutive_failure_blocks_subsequent_sends_via_kill_switch(self):
-        from moltbook.transport import CaptchaVerificationFailed
-        kill_switch = KillSwitch()
-        captcha_verifier = CaptchaVerifier(kill_switch)
-        transport = MoltbookHTTPTransport(
-            "key", request_fn=_fake_request(200), live_config_version=CONFIG_V1,
-            kill_switch=kill_switch,
-            captcha_verifier=captcha_verifier,
-            fetch_captcha_challenge=lambda: _challenge(),
-            submit_captcha_fn=_confirmed_failure,
+    def test_expired_challenge_honors_platform_expires_at_only(self):
+        """The fixture's captured expires_at (2026-07-21T12:05Z) is in the past —
+        EXPIRED/NOT_PUBLISHED with NO submit call and NO counter movement. Proves
+        expiry comes from the platform value, not any constant."""
+        verify_calls = []
+        def _submit(code, answer):
+            verify_calls.append(code)
+            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+        transport = _captcha_transport(
+            _submit,
+            request_fn=lambda m, p, b, h: HTTPResponse(
+                200, copy.deepcopy(CAPTCHA_FIXTURE["write_response_with_challenge"])),
         )
-        for _ in range(CAPTCHA_LOCAL_FAILURE_THRESHOLD):
-            with pytest.raises(CaptchaVerificationFailed):
-                transport.send(_envelope())
-        # The kill switch is now engaged (3rd confirmed failure) — a wholly separate
-        # write attempt is blocked at the kill-switch boundary, not just captcha.
-        with pytest.raises(KillSwitchEngaged):
-            transport.send(_envelope())
+        result = transport.send(_envelope())
+        assert result.publication_status is PublicationStatus.NOT_PUBLISHED
+        assert result.verification_status is VerificationStatus.EXPIRED
+        assert verify_calls == []  # documented-to-fail call never made
+        assert transport.captcha_verifier.consecutive_confirmed_failures == 0
+
+    def test_non_default_expiry_window_flows_with_no_constant_interfering(self):
+        """A submolt-style short window (well under 5 minutes) still verifies fine —
+        nothing in the flow encodes either documented window."""
+        transport = _captcha_transport(
+            _confirmed_success,
+            request_fn=lambda m, p, b, h: HTTPResponse(
+                200, _challenge_write_body(expires_in_seconds=20)),
+        )
+        result = transport.send(_envelope())
+        assert result.verification_status is VerificationStatus.PASSED
+
+    def test_each_write_binds_its_own_verification_code_never_reused(self):
+        """Two writes, two distinct platform-issued codes — each attempt record and
+        submit call carries the code from ITS OWN write response (Note E binding)."""
+        codes = iter(["moltbook_verify_AAA", "moltbook_verify_BBB"])
+        submitted = []
+        def _request(method, path, body, headers):
+            return HTTPResponse(200, _challenge_write_body(verification_code=next(codes)))
+        def _submit(code, answer):
+            submitted.append(code)
+            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+        transport = _captcha_transport(_submit, request_fn=_request)
+        transport.send(_envelope())
+        transport.send(_envelope())
+        assert submitted == ["moltbook_verify_AAA", "moltbook_verify_BBB"]
+        recorded = [r.verification_code for r in transport.captcha_verifier.log]
+        assert recorded == ["moltbook_verify_AAA", "moltbook_verify_BBB"]
+
+    def test_statuses_are_none_where_no_content_was_created(self):
+        """Publication/verification are questions only a created-content response
+        raises — a failed transmission has neither (None, not fabricated)."""
+        transport = MoltbookHTTPTransport(
+            "key", request_fn=_fake_request(429), live_config_version=CONFIG_V1,
+        )
+        result = transport.send(_envelope())
+        assert result.publication_status is None
+        assert result.verification_status is None
+        # And the Note E alias answers the transmission question by its note name.
+        assert result.transmission_status is result.outcome
+
+    def test_client_adapter_surfaces_statuses_additively(self):
+        transport = MoltbookHTTPTransport(
+            "key", live_config_version=CONFIG_V1,
+            request_fn=lambda m, p, b, h: HTTPResponse(200, _challenge_write_body()),
+        )
+        client_transport = as_client_transport(transport, governance_config_version=CONFIG_V1)
+        result = client_transport(action="post", content="hello", headers={})
+        assert result["outcome"] == "success"
+        assert result["publication_status"] == "pending_verification"
+        assert result["verification_status"] == "required"
+
+    def test_dry_run_simulated_statuses_are_labeled_simulated(self):
+        """Note E mechanical decision: no network call → no platform to issue a
+        challenge → the simulation mirrors the no-verification-block path, on the
+        deliberately separate DryRunOutcome type."""
+        dry = DryRunTransport(live_config_version=CONFIG_V1)
+        outcome = dry.send(_envelope(action_id=make_dry_run_action_id()))
+        assert outcome.simulated_publication_status is PublicationStatus.PUBLISHED
+        assert outcome.simulated_verification_status is VerificationStatus.NOT_REQUIRED
