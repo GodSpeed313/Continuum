@@ -954,4 +954,46 @@ at all — so the 429 branch above can classify the *fact* of a rate limit but c
 *how long* to wait. This is a real pre-live-deployment gap, not an oversight papered over: honoring
 it properly means widening the `request_fn` contract to also return headers, which touches every
 existing fake in the test suite and is deliberately left for its own pass rather than folded in
-under this correction.
+under this correction. **(That pass happened: resolved by Implementation Note D, 2026-07-21,
+below.)**
+
+---
+
+# Implementation Note D: request_fn Header Capture (2026-07-21, non-binding)
+
+The transport-contract note for closing the header-capture gap flagged above and in Note C.
+Same status as Notes A/B: transport-mechanical, no numbered section amended, no new invariants —
+§2's "the transport never independently retries" is untouched and restated below.
+
+**Binding content of this note:**
+
+* `request_fn`'s return contract changes shape from the bare `(status_code, json_body)` two-tuple
+  to an explicit frozen dataclass: `HTTPResponse(status_code: int, body: dict,
+  headers: Mapping[str, str])`. The shape change is deliberate and visible — headers are not
+  smuggled into the body or bolted on as a side-channel.
+* **No compatibility adapter.** The consumer sweep (2026-07-21) found the tuple shape lives in
+  exactly one test file (`tests/test_moltbook_transport.py`: one `_fake_request` factory plus a
+  dozen inline closures) and three internal call sites in `moltbook/transport.py`. Churn that
+  confined does not earn a second live shape — and a tuple-accepting adapter would let a
+  header-discarding wiring pass silently, which is the exact silent failure this note closes.
+* **Generic capture, both paths.** ALL response headers are captured, with names normalized to
+  lowercase at construction (case-insensitive lookup by normalization), on BOTH response paths —
+  the normal `urlopen` success path and the `urllib.error.HTTPError` path. A 429 arrives via
+  `HTTPError`, so single-path capture would silently fail on the one case this exists for.
+* **Normalized fields compose with (never bypass) the generic capture.** The four headers
+  documented in `docs/moltbook_api_spec.md` §5 — `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+  `X-RateLimit-Reset` (all responses), `Retry-After` (429 only) — are exposed as a typed
+  `RateLimitInfo` derived from the captured headers: `limit`/`remaining`/`reset` as best-effort
+  integer parses (§5 does not document `Reset`'s value format — epoch vs. delta is unknown, so
+  the raw string stays available in `headers`), and `Retry-After` parsed supporting both RFC 9110
+  forms: `retry_after_delay_seconds` (non-negative integer) or `retry_after_http_date` (HTTP-date).
+  Malformed values parse to `None`, never raise — the transport reports facts.
+* **Surfacing:** `TransportResult` gains optional `platform_headers` (the generic capture) and
+  `rate_limit` (the normalized fields), populated whenever a result is built from a real platform
+  response; `None` where no response exists (e.g. transport-level failure before any response).
+* **Explicit non-scope:** this is metadata capture only. No sleeping, no scheduling, no automatic
+  retry, no "if remaining < N, wait" policy anywhere. Note C's two conditions for ever enabling
+  automated retry: condition (a) — the seam exposes the real header values — is satisfied by this
+  note; condition (b) — scheduling behavior explicitly specified — remains unmet, so automated
+  retry remains disabled. `RATE_LIMITED` is still report-only, now with the wait-time facts
+  attached.

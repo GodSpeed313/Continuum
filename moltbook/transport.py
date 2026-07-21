@@ -30,8 +30,9 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from moltbook.dryrun import DRY_RUN_ID_PREFIX, is_dry_run_id
 
@@ -214,12 +215,90 @@ def describe_retry_category(category: RetryCategory) -> str:
     )
 
 
+# ─────────────── Implementation Note D: request_fn response contract ───────────────
+
+@dataclass(frozen=True)
+class RateLimitInfo:
+    """
+    Implementation Note D: the four documented rate-limit headers
+    (docs/moltbook_api_spec.md §5), normalized from HTTPResponse.headers — derived
+    from the generic capture, never parsed out-of-band from it. Best-effort typed
+    parses only: a malformed value is None, never an exception (the transport reports
+    facts). §5 does not document X-RateLimit-Reset's value format (epoch vs. delta),
+    so `reset` is just the integer as sent; the raw string stays in headers.
+    Metadata only — nothing here schedules, sleeps, or retries (Note C condition (b)
+    is still unmet).
+    """
+    limit: int | None = None
+    remaining: int | None = None
+    reset: int | None = None
+    retry_after_delay_seconds: int | None = None
+    retry_after_http_date: datetime | None = None
+
+    @classmethod
+    def from_headers(cls, headers: "Mapping[str, str]") -> "RateLimitInfo":
+        def _int(name: str) -> int | None:
+            raw = headers.get(name)
+            if raw is None:
+                return None
+            raw = raw.strip()
+            return int(raw) if re.fullmatch(r"-?\d+", raw) else None
+
+        delay: int | None = None
+        http_date: datetime | None = None
+        retry_raw = headers.get("retry-after")
+        if retry_raw is not None:
+            retry_raw = retry_raw.strip()
+            if re.fullmatch(r"\d+", retry_raw):  # RFC 9110: delay-seconds is non-negative
+                delay = int(retry_raw)
+            else:
+                try:
+                    http_date = parsedate_to_datetime(retry_raw)
+                except (TypeError, ValueError):
+                    http_date = None  # malformed: neither form — both fields stay None
+        return cls(
+            limit=_int("x-ratelimit-limit"),
+            remaining=_int("x-ratelimit-remaining"),
+            reset=_int("x-ratelimit-reset"),
+            retry_after_delay_seconds=delay,
+            retry_after_http_date=http_date,
+        )
+
+
+@dataclass(frozen=True)
+class HTTPResponse:
+    """
+    Implementation Note D: the explicit return contract of the `request_fn` seam,
+    replacing the old bare `(status_code, json_body)` two-tuple — deliberately a shape
+    change, not an additive smuggle. Header names are normalized to lowercase at
+    construction so lookup is case-insensitive by normalization. There is no
+    two-tuple compatibility adapter (Note D records why).
+    """
+    status_code: int
+    body: dict
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "headers", {str(k).lower(): v for k, v in dict(self.headers).items()}
+        )
+
+    @property
+    def rate_limit(self) -> RateLimitInfo:
+        return RateLimitInfo.from_headers(self.headers)
+
+
 @dataclass(frozen=True)
 class TransportResult:
     outcome: TransportOutcome
     retry_category: RetryCategory
     detail: str = ""
     platform_response: dict | None = None
+    # Implementation Note D: populated whenever this result was built from a real
+    # platform response; None where no response exists (e.g. pre-response transport
+    # failure). Capture and surface only — no consumer in this module acts on them.
+    platform_headers: Mapping[str, str] | None = None
+    rate_limit: RateLimitInfo | None = None
 
 
 # ────────────────────────── §9 Reconciliation authority ──────────────────────────
@@ -738,9 +817,10 @@ class MoltbookHTTPTransport:
     "escape hatch" endpoint surface (§6).
 
     All actual network I/O goes through the single injectable `request_fn` seam
-    (method, path, json_body, headers) -> (status_code, json_response). Production
-    wiring leaves it as the real `urllib`-based default; every test supplies a fake,
-    so no test in this suite ever makes a real network call.
+    (method, path, json_body, headers) -> HTTPResponse (Implementation Note D — the
+    old bare (status, body) two-tuple shape is gone, no adapter). Production wiring
+    leaves it as the real `urllib`-based default; every test supplies a fake, so no
+    test in this suite ever makes a real network call.
     """
 
     def __init__(
@@ -751,7 +831,7 @@ class MoltbookHTTPTransport:
         kill_switch: KillSwitch | None = None,
         eligibility_gate: EligibilityGate | None = None,
         live_config_version: str = "",
-        request_fn: Optional[Callable[[str, str, dict | None, dict], tuple[int, dict]]] = None,
+        request_fn: Optional[Callable[[str, str, dict | None, dict], HTTPResponse]] = None,
         captcha_verifier: Optional[CaptchaVerifier] = None,
         fetch_captcha_challenge: Optional[Callable[[], CaptchaChallenge]] = None,
         submit_captcha_fn: Optional[Callable[[str, str], tuple[CaptchaOutcome, Optional[dict]]]] = None,
@@ -778,19 +858,26 @@ class MoltbookHTTPTransport:
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._api_key}"}
 
-    def _real_request(self, method: str, path: str, body: dict | None, headers: dict) -> tuple[int, dict]:
+    def _real_request(self, method: str, path: str, body: dict | None, headers: dict) -> HTTPResponse:
         url = f"{self._base_url}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(
             url, data=data, headers={**headers, "Content-Type": "application/json"}, method=method,
         )
+        # Implementation Note D: headers are captured identically on BOTH paths —
+        # a 429 arrives via HTTPError, so capturing only on the success path would
+        # silently fail on the exact case header capture exists for.
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw = resp.read().decode("utf-8")
-                return resp.status, (json.loads(raw) if raw else {})
+                return HTTPResponse(
+                    resp.status, (json.loads(raw) if raw else {}), dict(resp.headers),
+                )
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8")
-            return exc.code, (json.loads(raw) if raw else {})
+            return HTTPResponse(
+                exc.code, (json.loads(raw) if raw else {}), dict(exc.headers),
+            )
 
     # ── Safe reads (§8) ──────────────────────────────────────────────────────────
     def health_check(self) -> TransportResult:
@@ -808,10 +895,10 @@ class MoltbookHTTPTransport:
 
     def check_eligibility(self) -> EligibilityState:
         """Implementation Note A: GET /api/v1/agents/status, a safe read."""
-        _status, body = self._request_fn("GET", "/agents/status", None, self._auth_headers())
+        response = self._request_fn("GET", "/agents/status", None, self._auth_headers())
         state = (
             EligibilityState.CLAIMED
-            if body.get("status") == "claimed"
+            if response.body.get("status") == "claimed"
             else EligibilityState.PENDING_CLAIM
         )
         self.eligibility.update(state)
@@ -820,9 +907,12 @@ class MoltbookHTTPTransport:
     def read_feed(self) -> TransportResult:
         """GET /api/v1/posts (docs/moltbook_api_spec.md §4) — NOT `/feed`, which does
         not exist on the real API. Corrected against that reference before first use."""
-        status, body = self._request_fn("GET", "/posts", None, self._auth_headers())
-        outcome = TransportOutcome.SUCCESS if status == 200 else TransportOutcome.FAILURE
-        return TransportResult(outcome, RetryCategory.SAFE_READ, platform_response=body)
+        response = self._request_fn("GET", "/posts", None, self._auth_headers())
+        outcome = TransportOutcome.SUCCESS if response.status_code == 200 else TransportOutcome.FAILURE
+        return TransportResult(
+            outcome, RetryCategory.SAFE_READ, platform_response=response.body,
+            platform_headers=response.headers, rate_limit=response.rate_limit,
+        )
 
     # ── Governed writes (§4, §10, Note A, §12) ──────────────────────────────────
     def send(self, envelope: ActionEnvelope) -> TransportResult:
@@ -895,21 +985,29 @@ class MoltbookHTTPTransport:
             # (docs/moltbook_api_spec.md §4) and must not be sent on the wire.
             body_to_send = {k: v for k, v in envelope.payload.items() if k != "parent_post_id"}
         try:
-            status, body = self._request_fn("POST", path, body_to_send, self._auth_headers())
+            response = self._request_fn("POST", path, body_to_send, self._auth_headers())
         except (TimeoutError, ConnectionError, OSError) as exc:
             # §8 category 2 (idempotent write retry candidate): transport-level
             # failure BEFORE any response was received. This call does not retry —
             # the transport never decides to retry on its own (§2) — it reports the
-            # fact and leaves any retry decision to the caller.
+            # fact and leaves any retry decision to the caller. No response exists,
+            # so platform_headers/rate_limit stay None (Note D).
             return TransportResult(
                 TransportOutcome.OUTCOME_UNKNOWN, RetryCategory.IDEMPOTENT_WRITE,
                 detail=f"no response received: {exc}",
             )
 
+        status, body = response.status_code, response.body
+        # Implementation Note D: every result below was built from a real platform
+        # response, so all of them surface the captured headers + normalized
+        # rate-limit fields — capture and surface only, nothing acts on them here.
+        resp_meta: dict = {
+            "platform_headers": response.headers, "rate_limit": response.rate_limit,
+        }
         if status in (401, 403):
             return TransportResult(
                 TransportOutcome.FAILURE, RetryCategory.GOVERNANCE_DENIAL,
-                detail="platform denial", platform_response=body,
+                detail="platform denial", platform_response=body, **resp_meta,
             )
         if status == 409:
             # docs/moltbook_api_spec.md §6: platform-documented conflict — the
@@ -920,7 +1018,7 @@ class MoltbookHTTPTransport:
                 TransportOutcome.OUTCOME_UNKNOWN, RetryCategory.AMBIGUOUS_WRITE,
                 detail="409 conflict — candidate for reconciliation's deterministic "
                        "duplicate-detection path (§9), not assumed success or failure",
-                platform_response=body,
+                platform_response=body, **resp_meta,
             )
         if status == 410:
             # docs/moltbook_api_spec.md §6: platform-documented "gone/expired" —
@@ -929,32 +1027,37 @@ class MoltbookHTTPTransport:
             return TransportResult(
                 TransportOutcome.FAILURE, RetryCategory.GOVERNANCE_DENIAL,
                 detail="410 gone/expired — terminal, never retried", platform_response=body,
+                **resp_meta,
             )
         if status == 429:
             # docs/moltbook_api_spec.md §5: rate limited. Deliberately NOT
             # GOVERNANCE_DENIAL — a 429 is eventually retryable (after Retry-After
             # elapses), unlike a terminal denial. The transport itself still never
-            # retries on its own (§2) — actual Retry-After/X-RateLimit-* header
-            # capture is a known, flagged, not-yet-wired gap (request_fn's seam
-            # currently returns status+body only, not response headers).
+            # retries on its own (§2). Retry-After/X-RateLimit-* values now ride
+            # along in rate_limit/platform_headers (Implementation Note D) — facts
+            # surfaced outward; scheduling on them stays unspecified (Note C (b)).
             return TransportResult(
                 TransportOutcome.FAILURE, RetryCategory.RATE_LIMITED,
                 detail="429 rate limited — retry only after Retry-After elapses; "
-                       "header value not yet captured by this transport (known gap)",
-                platform_response=body,
+                       "header values surfaced in rate_limit (Note D), never acted "
+                       "on by this transport",
+                platform_response=body, **resp_meta,
             )
         if 200 <= status < 300:
-            return TransportResult(TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE, platform_response=body)
+            return TransportResult(
+                TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
+                platform_response=body, **resp_meta,
+            )
         if 500 <= status < 600:
             # §8 category 3: a response WAS received but its meaning is uncertain —
             # ambiguous, never retried automatically here, goes to reconciliation (§9).
             return TransportResult(
                 TransportOutcome.OUTCOME_UNKNOWN, RetryCategory.AMBIGUOUS_WRITE,
-                detail=f"5xx response: {status}", platform_response=body,
+                detail=f"5xx response: {status}", platform_response=body, **resp_meta,
             )
         return TransportResult(
             TransportOutcome.FAILURE, RetryCategory.GOVERNANCE_DENIAL,
-            detail=f"unexpected status {status}", platform_response=body,
+            detail=f"unexpected status {status}", platform_response=body, **resp_meta,
         )
 
 
