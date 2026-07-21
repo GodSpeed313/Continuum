@@ -27,7 +27,7 @@ under 200 lines — anything longer belongs in a skill, not here.
   runtime (see `.claude/skills/rift-intent-declaration`)
 - `es/` — Elasticsearch adapter, canonical example of the Layer-1-to-Pi-Script adapter pattern
 - `m5/` — M5 dogfood policy, state, and traces (reference for the adapter/dogfood pattern)
-- `tests/` — pytest suite, 407 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
+- `tests/` — pytest suite, 480 passing + 6 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
 - `docs/` — grammar specs and rulings; source of truth per spec-first principle
 - `mcp_server.py` — exposes the resolver pipeline as an MCP tool, `check_governance`
 - No top-level `traces/`. Traces write to a `traces/` directory sibling to whatever `state_path`
@@ -67,3 +67,22 @@ infrastructure-state monitoring. Draft Rift intent declaration exists — see
 the moltbook_pyclaw/Ting_Fodder/doctor_crustacean coordinated-manipulation pattern) live in the
 M7 scoping notes — cross-agent coordinated manipulation is an explicit v1.1/v2 `ManipulationFlag`
 extension, out of scope for the first M7 pass. Don't fold it in early.
+
+Account `u/continuumagent` is registered, verified, and claimed. The transport/execution layer
+(`moltbook/transport.py`) is governed by `docs/m7_moltbook_transport_boundary_and_deployment_spec.md`
+(LOCKED, plus non-binding Implementation Notes A [claim-status eligibility gate] and B [captcha
+verification]) — it is NOT a Pi Script constraint or a 9.x grammar ruling, just the non-semantic
+adapter that moves already-approved actions to the live API. Built and tests green (480 passed +
+6 xfail), but **nothing is committed yet** — no branch, no PR, stopped at the same commit gate the
+other M7 constraints used. `MoltbookClient.send()` now takes `parent_post_id` (required for
+comment/reply); real endpoints (`/posts`, `/posts/{id}/comments`, `/agents/status`) were corrected
+against `docs/moltbook_api_spec.md` (a reference doc describing the actual API surface — not a
+governance document), including a pass that stopped sending `parent_post_id` as a body field
+(URL-routing only, per §4) and added distinct 409/410/429 status handling (§8). The 429 → `RATE_LIMITED`
+addition formally extends the locked §8 retry taxonomy from four categories to five —
+documented as Implementation Note C (the one note that amends a numbered section, unlike A/B),
+with `describe_retry_category()` as the canonical exhaustive consumer (loud `ValueError` on any
+unrecognized category, no silent default). Remaining before live deployment: the manual
+`MOLTBOOK_API_KEY` env step is done, but `fetch_captcha_challenge`'s real issuance flow and
+`X-RateLimit-*`/`Retry-After` header capture (the `request_fn` seam doesn't return headers yet) are
+both flagged, known, unresolved gaps — not wired against the live API.

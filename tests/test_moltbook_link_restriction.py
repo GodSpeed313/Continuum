@@ -152,13 +152,13 @@ class TestPreSendGate:
     def test_novel_link_blocked_and_latched(self):
         client = _client()
         with pytest.raises(LinkBlocked):
-            client.send(f"check {NOVEL_URL}", action="comment", source_content=SOURCE)
+            client.send(f"check {NOVEL_URL}", action="comment", source_content=SOURCE, parent_post_id="parent-1")
         assert client.link_violation is True
 
     def test_provenanced_reshare_reaches_transport(self):
         sent = {}
         client = _client(transport=lambda **kw: sent.update(kw) or {"ok": True})
-        result = client.send(f"yes, {SOURCE_URL}", action="comment", source_content=SOURCE)
+        result = client.send(f"yes, {SOURCE_URL}", action="comment", source_content=SOURCE, parent_post_id="parent-1")
         assert result == {"ok": True}
         assert client.link_violation is False
         assert sent["action"] == "comment"
@@ -182,7 +182,7 @@ class TestPreSendGate:
 class TestReshareLogging:
     def test_passed_reshare_is_logged(self):
         client = _client(transport=lambda **kw: {"ok": True})
-        client.send(f"as cited: {SOURCE_URL}", action="comment", source_content=SOURCE)
+        client.send(f"as cited: {SOURCE_URL}", action="comment", source_content=SOURCE, parent_post_id="parent-1")
         records = client.link_provenance_records()
         assert len(records) == 1
         assert records[0].url == SOURCE_URL

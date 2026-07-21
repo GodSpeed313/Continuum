@@ -165,6 +165,7 @@ class MoltbookClient:
         action: str = "post",
         source_content: str = "",
         human_authorized: bool = False,
+        parent_post_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Attempt to send an outbound action (post/comment/dm). Scans first.
@@ -180,7 +181,21 @@ class MoltbookClient:
 
         `source_content` is the content the agent is responding to/citing — a URL present
         there has legitimate provenance. On a clean pass, hand off to the transport.
+
+        `parent_post_id` identifies the post a reply/comment targets (the real
+        Moltbook API nests comments under a specific post, docs/moltbook_api_spec.md
+        §4 — it is not a flat endpoint). Required for `action in ("comment", "reply")`;
+        rejected fast here rather than letting a known-incomplete action reach the
+        gates and transport. The transport layer independently re-validates this as
+        part of the Approved Action Envelope (moltbook/transport.py) — this is a
+        fail-fast client-side check, not the sole enforcement point.
         """
+        if action in ("comment", "reply") and not parent_post_id:
+            raise ValueError(
+                f"{action} requires parent_post_id — Moltbook replies are nested "
+                "under a specific post (docs/moltbook_api_spec.md §4)"
+            )
+
         cred = scan_content(content, own_key=self._api_key)
         links = scan_links(content, source_content=source_content, allowed_hosts=self._allowed_hosts)
         self._link_log.extend(links.findings)
@@ -231,6 +246,7 @@ class MoltbookClient:
             action=action,
             content=content,
             headers=self._auth_header(),
+            parent_post_id=parent_post_id,
         )
 
     # ── Governance snapshot for the Pi Script resolver ───────────────────────────

@@ -43,6 +43,7 @@ from typing import Any, Iterable
 
 from pi_script.resolver import resolve
 from moltbook.cadence import normalize_utc
+from moltbook.dryrun import is_dry_run_id
 
 # §5: the rolling window is the ONE grounded parameter — inherited directly from
 # CadenceIntegrity §5 (same cohort-cadence rationale), not independently re-derived.
@@ -150,7 +151,13 @@ class CitationEdgeStore:
         Self-citations are dropped (a self-loop is not a relationship between accounts).
         Idempotent by post ID: the first write wins and a re-ingest (same or different
         edges) changes nothing (§4/§6). Returns True if the record was new.
+
+        Structural dry-run isolation (transport spec §11): an ID in the reserved
+        dry-run namespace is rejected here, at the store boundary, regardless of what
+        called ingest() — a dry-run action must never enter the citation graph.
         """
+        if is_dry_run_id(post_id):
+            return False
         if post_id in self._data["posts"]:
             return False
         src = self._clean_handle(source)
