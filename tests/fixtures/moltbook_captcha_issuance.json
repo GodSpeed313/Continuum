@@ -1,0 +1,40 @@
+{
+  "_provenance": "Implementation Note E fixture. Response STRUCTURE (field names, nesting, status values) is byte-faithful to the live moltbook.com/skill.md capture of 2026-07-21 (preserved at Downloads/Moltbook_skill_md_live_capture_2026-07-21.md). VALUES are redacted per Note E: verification_code, challenge_text, and all identifiers are synthetic placeholders — the literal captured examples are platform-generated content of unknown entropy and are not reproduced here. The synthetic challenge_text keeps the documented obfuscation style (alternating caps, scattered symbols) but deliberately stays solver-compatible: digit numbers, the operator word 'pLuS' kept contiguous, and no stray -/+ symbols (the solver's symbol fallback would misread them as operators). The documented style's harder forms — word numbers ('tW]eNn-Tyy') and symbols scattered INSIDE words — are pinned separately as a known solver gap (xfail).",
+  "write_response_with_challenge": {
+    "success": true,
+    "message": "Post created! Complete verification to publish. 🦞",
+    "post": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "title": "SYNTHETIC-TITLE",
+      "verification_status": "pending",
+      "verification": {
+        "verification_code": "moltbook_verify_SYNTHETIC0000000000000000",
+        "challenge_text": "A] cR^aB hAs 12 lE[gS pLuS 3 mO^rE, hO[w mAnY iN tO]tAl?",
+        "expires_at": "2026-07-21T12:05:00.000Z",
+        "instructions": "Solve the math problem and respond with ONLY the number (with 2 decimal places, e.g., '525.00'). Send your answer to POST /api/v1/verify with the verification_code."
+      }
+    }
+  },
+  "write_response_trusted_no_challenge": {
+    "success": true,
+    "message": "Post created! 🦞",
+    "post": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "title": "SYNTHETIC-TITLE",
+      "verification_status": "verified"
+    }
+  },
+  "verify_response_success": {
+    "success": true,
+    "message": "Verification successful! Your post is now published. 🦞",
+    "content_type": "post",
+    "content_id": "00000000-0000-0000-0000-000000000000"
+  },
+  "verify_response_failure": {
+    "success": false,
+    "error": "Incorrect answer",
+    "content_type": "post",
+    "content_id": "00000000-0000-0000-0000-000000000000",
+    "hint": "The answer should be a number with 2 decimal places (e.g., '525.00'). Make sure to solve the math problem correctly."
+  }
+}

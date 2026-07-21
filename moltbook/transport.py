@@ -288,6 +288,32 @@ class HTTPResponse:
         return RateLimitInfo.from_headers(self.headers)
 
 
+# Implementation Note E: a write's outcome is three independent questions, not one.
+# `TransportOutcome` (above) already answers the first — did the write reach the
+# platform (§8's existing concern, unchanged). These two answer the others; neither
+# is derivable from transmission success, because a transmitted write lands hidden
+# in `pending` until verification publishes it (or never does).
+
+class PublicationStatus(str, Enum):
+    """Is the content actually public? NOT_PUBLISHED is terminal for that content —
+    the platform documents no publication path after a failed/expired verification;
+    a fresh write with a fresh challenge is the only recovery (Note E)."""
+    PENDING_VERIFICATION = "pending_verification"
+    PUBLISHED = "published"
+    NOT_PUBLISHED = "not_published"
+
+
+class VerificationStatus(str, Enum):
+    """NOT_REQUIRED is the first-class trusted-agent path (Note E): the write
+    response carried no `verification` block and the content published immediately —
+    a positive, classifiable fact, not a degenerate case of the other paths."""
+    REQUIRED = "required"
+    PASSED = "passed"
+    FAILED = "failed"
+    EXPIRED = "expired"
+    NOT_REQUIRED = "not_required"
+
+
 @dataclass(frozen=True)
 class TransportResult:
     outcome: TransportOutcome
@@ -299,6 +325,18 @@ class TransportResult:
     # failure). Capture and surface only — no consumer in this module acts on them.
     platform_headers: Mapping[str, str] | None = None
     rate_limit: RateLimitInfo | None = None
+    # Implementation Note E: populated only for write results whose transmission
+    # succeeded (a created-content response is the only thing that HAS a publication
+    # or verification status). None on reads, failed transmissions, and ambiguous
+    # outcomes. Transport-visible facts only — no governance semantics attached.
+    publication_status: PublicationStatus | None = None
+    verification_status: VerificationStatus | None = None
+
+    @property
+    def transmission_status(self) -> TransportOutcome:
+        """Note E's first status field, by its note name — an alias of `outcome`,
+        which has answered 'did the write reach the platform' since the spec locked."""
+        return self.outcome
 
 
 # ────────────────────────── §9 Reconciliation authority ──────────────────────────
@@ -459,7 +497,7 @@ class KillSwitch:
         *,
         action_class: str,
         action_id: str,
-        challenge_id: str,
+        verification_code: str,
         confirmed_failure_count: int,
         platform_response: dict | None,
         detail: str = "",
@@ -468,10 +506,11 @@ class KillSwitch:
         Implementation Note B (2026-07-20, non-binding on the locked spec): active
         automated trigger, engaged by CaptchaVerifier on the 3rd CONSECUTIVE
         PLATFORM-CONFIRMED captcha failure. This is Continuum's own conservative
-        safety margin (CAPTCHA_LOCAL_FAILURE_THRESHOLD = 3) — Moltbook's documented
-        suspension boundary is 10 consecutive failures
-        (docs/moltbook_api_spec.md §6, PLATFORM_CAPTCHA_SUSPENSION_LIMIT); this
-        trigger fires well before that limit could ever be reached. Deliberately NOT
+        safety margin (CAPTCHA_LOCAL_FAILURE_THRESHOLD = 3). Moltbook's documented
+        suspension rule (PLATFORM_CAPTCHA_SUSPENSION_LIMIT) is a DIFFERENT rule over
+        a DIFFERENT window — last 10 attempts all failures, expiry counted — per
+        Note E these are deliberately NOT equivalent and ours must never be described
+        as mapping onto theirs; ours is simply the stricter margin. Deliberately NOT
         routed through §14.1's dormant "repeated integrity failures" trigger — that
         one stays undefined pending its own amendment; this one is scoped,
         conservative, and active now on its own terms.
@@ -490,7 +529,7 @@ class KillSwitch:
             affected_action_class=action_class,
             extra={
                 "action_id": action_id,
-                "challenge_id": challenge_id,
+                "verification_code": verification_code,
                 "confirmed_failure_count": confirmed_failure_count,
                 "local_threshold": CAPTCHA_LOCAL_FAILURE_THRESHOLD,
                 "platform_suspension_limit": PLATFORM_CAPTCHA_SUSPENSION_LIMIT,
@@ -538,12 +577,17 @@ class KillSwitch:
         ))
 
 
-# ──────────── Implementation Note B: captcha verification (2026-07-20) ──────────
+# ──── Implementation Notes B + E: captcha verification (2026-07-20 / 2026-07-21) ────
 #
 # Non-binding on the locked spec, same status as Implementation Note A. Moltbook
 # requires solving an obfuscated math-word-problem challenge before any post/comment
-# publishes (docs/moltbook_api_spec.md §6); ten consecutive failures suspends the
-# account. Decided treatment (operator decision, 2026-07-20):
+# PUBLISHES; if the account's last 10 challenge attempts are all failures (expired or
+# incorrect) the account is suspended. Note E (2026-07-21, signed off) amended Note B's
+# mechanics after the live protocol was discovered: the WRITE issues the challenge
+# inside its own response (no standalone issuance endpoint — fetch_captcha_challenge
+# is retired), verification gates PUBLICATION not transmission, and verification_code
+# replaced challenge_id contract-wide. Note B's core treatment stands unchanged
+# (operator decision, 2026-07-20):
 #   - This is a TRANSPORT-MECHANICAL publishing precondition, NOT a new governed
 #     action type and NOT its own Approved Action Envelope. It may run only against
 #     a write that already has a valid envelope (§4) — see MoltbookHTTPTransport.send.
@@ -552,7 +596,7 @@ class KillSwitch:
 #     the approved post/reply payload — solving the challenge is orthogonal to what
 #     gets posted.
 #   - Every attempt is bound to the originating action_id, approval_trace_id, and
-#     challenge_id (see CaptchaAttemptRecord). Ambiguous outcomes (timeout, unclear
+#     verification_code (see CaptchaAttemptRecord). Ambiguous outcomes (timeout, unclear
 #     response) are never counted as confirmed failures and never blindly retried;
 #     the same answer is never resubmitted across challenges.
 #   - A NEW active kill-switch trigger, `captcha_suspension_risk` (KillSwitch, above),
@@ -567,9 +611,13 @@ PLATFORM_CAPTCHA_SUSPENSION_LIMIT below for the actual Moltbook-documented numbe
 this margin is deliberately set well under."""
 
 PLATFORM_CAPTCHA_SUSPENSION_LIMIT = 10
-"""Moltbook-documented (docs/moltbook_api_spec.md §6): ten consecutive verification
-failures suspends the account. This is platform-grounded, unlike the threshold above —
-recorded here only so activation audit events can show both numbers together."""
+"""Moltbook-documented (live skill.md capture 2026-07-21): if the account's LAST 10
+challenge attempts are ALL failures (expired or incorrect), the account is
+automatically suspended. A trailing-10 window, NOT a consecutive count — and therefore
+NOT the same rule as Continuum's consecutive-confirmed threshold above (Note E:
+different rules over different windows; ours is the deliberately stricter margin,
+never to be described as equivalent). Recorded here only so activation audit events
+can show both numbers together."""
 
 
 class CaptchaOutcome(str, Enum):
@@ -580,18 +628,68 @@ class CaptchaOutcome(str, Enum):
 
 @dataclass(frozen=True)
 class CaptchaChallenge:
-    challenge_id: str
+    """Implementation Note E: parsed from the `verification` block the platform
+    embeds in a write response — there is no standalone issuance endpoint.
+    `verification_code` is the platform's lookup key (it replaced `challenge_id`
+    contract-wide per Note E); `expires_at` is the platform's value, never a
+    caller-invented one."""
+    verification_code: str
     prompt: str
     expires_at: datetime
+
+
+def parse_verification_block(body: dict) -> CaptchaChallenge | None:
+    """
+    Implementation Note E: extract the embedded challenge from a successful write
+    response. The documented shape (live skill.md capture, 2026-07-21) nests it under
+    the created content — `post.verification` / `comment.verification` /
+    `submolt.verification` — carrying `verification_code`, `challenge_text`, and
+    `expires_at` (ISO-8601).
+
+    Returns None when NO verification block exists — the documented trusted-agent
+    immediate-publish signal, a positive fact, not an error. A verification block
+    that IS present but missing its documented fields contradicts the captured
+    protocol shape and raises loudly (Note E stop condition: re-fixture, don't
+    bridge the gap with guesses).
+    """
+    candidates = [body.get(k) for k in ("post", "comment", "submolt")]
+    candidates.append(body)  # tolerate a top-level block, same fields
+    for content in candidates:
+        if not isinstance(content, dict):
+            continue
+        block = content.get("verification")
+        if not isinstance(block, dict):
+            continue
+        code = block.get("verification_code")
+        prompt = block.get("challenge_text")
+        expires_raw = block.get("expires_at")
+        if not (isinstance(code, str) and code and isinstance(prompt, str) and prompt
+                and isinstance(expires_raw, str) and expires_raw):
+            raise ValueError(
+                "write response contains a 'verification' block that does not match "
+                "the captured protocol shape (verification_code / challenge_text / "
+                "expires_at all required) — re-fixture against the live response, "
+                f"do not guess (Note E). Got keys: {sorted(block.keys())!r}"
+            )
+        try:
+            expires_at = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                f"verification.expires_at is not ISO-8601: {expires_raw!r} — "
+                "contradicts the captured protocol shape (Note E)"
+            ) from exc
+        return CaptchaChallenge(verification_code=code, prompt=prompt, expires_at=expires_at)
+    return None
 
 
 @dataclass(frozen=True)
 class CaptchaAttemptRecord:
     """Binds one verification attempt to its originating action and challenge, per
-    Implementation Note B's binding requirement."""
+    Implementation Note B's binding requirement (key renamed to the platform's
+    `verification_code` by Note E)."""
     action_id: str
     approval_trace_id: str
-    challenge_id: str
+    verification_code: str
     outcome: CaptchaOutcome
     platform_response: dict | None
     timestamp: datetime
@@ -632,17 +730,12 @@ def solve_captcha_deterministic(prompt: str) -> str:
     return f"{result:.2f}"
 
 
-class CaptchaVerificationFailed(Exception):
-    """Raised when a confirmed captcha failure blocks the current write attempt.
-    Distinct from KillSwitchEngaged: this blocks only THIS attempt; a fresh attempt
-    with a new challenge may still be made afterward, subject to the kill switch if
-    the consecutive-failure count has tripped it."""
-
-
-class CaptchaVerificationAmbiguous(Exception):
-    """Raised when the platform's verification response was a timeout or otherwise
-    unclear. Never counted as a confirmed failure, and never auto-retried here —
-    the caller decides whether to attempt a fresh challenge."""
+# Note E retired CaptchaVerificationFailed / CaptchaVerificationAmbiguous: those
+# exceptions blocked a write BEFORE transmission, which the real protocol makes
+# impossible — the write has already happened by the time verification runs, so a
+# verification outcome is a classified fact on the TransportResult
+# (publication_status / verification_status), never an exception that discards the
+# transmission facts.
 
 
 class CaptchaVerifier:
@@ -677,19 +770,19 @@ class CaptchaVerifier:
         submit_fn: Callable[[str, str], tuple[CaptchaOutcome, Optional[dict]]],
     ) -> CaptchaOutcome:
         """
-        `submit_fn(challenge_id, answer) -> (CaptchaOutcome, platform_response)` is the
-        injectable network seam (mirrors MoltbookHTTPTransport's request_fn pattern) —
-        the real network call happens only there; every test supplies a fake. Solves
-        exactly once per call — this method never resubmits the same answer, and
-        never retries an ambiguous outcome on its own.
+        `submit_fn(verification_code, answer) -> (CaptchaOutcome, platform_response)`
+        is the injectable network seam (mirrors MoltbookHTTPTransport's request_fn
+        pattern) — the real network call happens only there; every test supplies a
+        fake. Solves exactly once per call — this method never resubmits the same
+        answer, and never retries an ambiguous outcome on its own.
         """
         answer = self._solver(challenge.prompt)
-        outcome, platform_response = submit_fn(challenge.challenge_id, answer)
+        outcome, platform_response = submit_fn(challenge.verification_code, answer)
 
         self._log.append(CaptchaAttemptRecord(
             action_id=envelope.action_id,
             approval_trace_id=envelope.approval_trace_id,
-            challenge_id=challenge.challenge_id,
+            verification_code=challenge.verification_code,
             outcome=outcome,
             platform_response=platform_response,
             timestamp=datetime.now(timezone.utc),
@@ -703,7 +796,7 @@ class CaptchaVerifier:
                 self._kill_switch.activate_captcha_suspension_risk(
                     action_class=envelope.action_type.value,
                     action_id=envelope.action_id,
-                    challenge_id=challenge.challenge_id,
+                    verification_code=challenge.verification_code,
                     confirmed_failure_count=self._consecutive_confirmed_failures,
                     platform_response=platform_response,
                 )
@@ -773,6 +866,13 @@ class DryRunOutcome:
     envelope: ActionEnvelope
     simulated_outcome: TransportOutcome
     detail: str = "dry-run: no network call made"
+    # Note E mechanical decision: with no network call there is no platform to issue
+    # a challenge, so the simulation mirrors the documented no-verification-block
+    # path (NOT_REQUIRED + PUBLISHED). The `simulated_` prefix and this type's
+    # deliberate separation from TransportResult keep it impossible to read as a
+    # real publication fact.
+    simulated_publication_status: PublicationStatus = PublicationStatus.PUBLISHED
+    simulated_verification_status: VerificationStatus = VerificationStatus.NOT_REQUIRED
 
 
 class DryRunTransport:
@@ -833,7 +933,6 @@ class MoltbookHTTPTransport:
         live_config_version: str = "",
         request_fn: Optional[Callable[[str, str, dict | None, dict], HTTPResponse]] = None,
         captcha_verifier: Optional[CaptchaVerifier] = None,
-        fetch_captcha_challenge: Optional[Callable[[], CaptchaChallenge]] = None,
         submit_captcha_fn: Optional[Callable[[str, str], tuple[CaptchaOutcome, Optional[dict]]]] = None,
     ) -> None:
         self._api_key = api_key
@@ -842,13 +941,23 @@ class MoltbookHTTPTransport:
         self.eligibility = eligibility_gate or EligibilityGate()
         self._live_config_version = live_config_version
         self._request_fn = request_fn or self._real_request
-        # Implementation Note B: all three optional. If unset, no captcha step runs —
-        # existing behavior (and every earlier test) is unchanged. Wiring exactly how
-        # a live challenge is *issued* by Moltbook is left to whoever wires
-        # fetch_captcha_challenge for real deployment; this class only requires that
-        # it returns a CaptchaChallenge when called.
+        # Implementation Note E fail-closed invariant: the captcha surface is exactly
+        # two pieces (issuance is embedded in the write response — there is nothing
+        # to fetch, so Note B's fetch_captcha_challenge is retired). Both configured,
+        # or neither — a partial configuration is the latent-crash-after-live-issuance
+        # failure mode Note B's three-optional constructor permitted, and it fails
+        # HERE, at construction, never later.
+        if (captcha_verifier is None) != (submit_captcha_fn is None):
+            raise ValueError(
+                "partial captcha configuration (Note E fail-closed invariant): "
+                "captcha_verifier and submit_captcha_fn must be BOTH configured or "
+                "BOTH absent — got "
+                f"captcha_verifier={'set' if captcha_verifier is not None else 'None'}, "
+                f"submit_captcha_fn={'set' if submit_captcha_fn is not None else 'None'}"
+            )
+        # Unconfigured remains legal: a write that comes back pending-verification is
+        # reported outward as exactly that (PENDING_VERIFICATION), never guessed at.
         self.captcha_verifier = captcha_verifier
-        self._fetch_captcha_challenge = fetch_captcha_challenge
         self._submit_captcha_fn = submit_captcha_fn
 
     @property
@@ -917,9 +1026,13 @@ class MoltbookHTTPTransport:
     # ── Governed writes (§4, §10, Note A, §12) ──────────────────────────────────
     def send(self, envelope: ActionEnvelope) -> TransportResult:
         """
-        The single write entry point for post/reply. Order matches the spec exactly:
-        envelope freshness (§4) -> kill switch (§10) -> eligibility gate (Note A) ->
-        network call -> outcome classification (§8). Nothing here inspects or alters
+        The single write entry point for post/reply. Order matches the spec plus
+        Note E exactly: envelope freshness (§4) -> kill switch (§10) -> eligibility
+        gate (Note A) -> network call -> transmission classification (§8) -> on a
+        created-content response, verification classification (Note E: parse the
+        embedded `verification` block -> solve -> submit -> classify publication).
+        Verification gates PUBLICATION, not transmission — the write has already
+        happened by the time it runs. Nothing here inspects or alters
         `envelope.payload` — it is transmitted exactly as approved (§2/§5/§6).
 
         Real endpoint shapes (docs/moltbook_api_spec.md §4): posts go to
@@ -946,28 +1059,6 @@ class MoltbookHTTPTransport:
         validate_envelope(envelope, live_config_version=self._live_config_version)
         self.kill_switch.check_write()
         self.eligibility.check_write()
-
-        # Implementation Note B: a transport-mechanical publishing precondition, run
-        # only against an already-validated envelope — never its own envelope, never
-        # a governed action. Only engages if the caller wired all three captcha
-        # pieces; unwired, behavior is identical to before this note.
-        if self.captcha_verifier is not None and self._fetch_captcha_challenge is not None:
-            challenge = self._fetch_captcha_challenge()
-            outcome = self.captcha_verifier.verify(
-                envelope, challenge, submit_fn=self._submit_captcha_fn,
-            )
-            if outcome is CaptchaOutcome.CONFIRMED_FAILURE:
-                raise CaptchaVerificationFailed(
-                    f"captcha challenge {challenge.challenge_id!r} confirmed failed "
-                    f"for action {envelope.action_id!r} — write not sent"
-                )
-            if outcome is CaptchaOutcome.AMBIGUOUS:
-                raise CaptchaVerificationAmbiguous(
-                    f"captcha challenge {challenge.challenge_id!r} gave an ambiguous "
-                    f"response for action {envelope.action_id!r} — write not sent, "
-                    "not counted as a failure, not auto-retried"
-                )
-            # CONFIRMED_SUCCESS falls through to the actual write below.
 
         if envelope.action_type is ActionType.POST:
             path = "/posts"
@@ -1044,10 +1135,9 @@ class MoltbookHTTPTransport:
                 platform_response=body, **resp_meta,
             )
         if 200 <= status < 300:
-            return TransportResult(
-                TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
-                platform_response=body, **resp_meta,
-            )
+            # Note E: transmission succeeded and content was created — now classify
+            # publication, which is a separate question the verification flow answers.
+            return self._classify_created_content(envelope, body, resp_meta)
         if 500 <= status < 600:
             # §8 category 3: a response WAS received but its meaning is uncertain —
             # ambiguous, never retried automatically here, goes to reconciliation (§9).
@@ -1058,6 +1148,89 @@ class MoltbookHTTPTransport:
         return TransportResult(
             TransportOutcome.FAILURE, RetryCategory.GOVERNANCE_DENIAL,
             detail=f"unexpected status {status}", platform_response=body, **resp_meta,
+        )
+
+    def _classify_created_content(
+        self, envelope: ActionEnvelope, body: dict, resp_meta: dict,
+    ) -> TransportResult:
+        """
+        Implementation Note E: a created-content (2xx) write response carries the
+        publication question. Four outcomes, all classified facts on the result —
+        never exceptions, never retries, never guessed timing:
+
+          no verification block  -> NOT_REQUIRED + PUBLISHED (trusted-agent path,
+                                    first-class — zero verify calls)
+          captcha unconfigured   -> REQUIRED + PENDING_VERIFICATION (left pending,
+                                    reported exactly as that, never guessed at)
+          challenge expired      -> EXPIRED + NOT_PUBLISHED (expiry read from the
+                                    platform's expires_at only — no constant)
+          verify runs            -> PASSED/FAILED/REQUIRED per the platform's answer
+        """
+        challenge = parse_verification_block(body)
+        if challenge is None:
+            return TransportResult(
+                TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
+                detail="no verification block — published immediately (trusted-agent "
+                       "path, Note E)",
+                platform_response=body,
+                publication_status=PublicationStatus.PUBLISHED,
+                verification_status=VerificationStatus.NOT_REQUIRED,
+                **resp_meta,
+            )
+        if self.captcha_verifier is None:
+            return TransportResult(
+                TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
+                detail="verification required but captcha is not configured — content "
+                       "left pending on the platform, reported as exactly that (Note E)",
+                platform_response=body,
+                publication_status=PublicationStatus.PENDING_VERIFICATION,
+                verification_status=VerificationStatus.REQUIRED,
+                **resp_meta,
+            )
+        if datetime.now(timezone.utc) >= challenge.expires_at:
+            # Platform-supplied expiry has already passed — submitting would be a
+            # documented-to-fail call (410). No attempt is made, no attempt record
+            # exists (nothing was submitted, so nothing is platform-confirmed), and
+            # the failure counter does not move. The platform may count the expiry
+            # against its own trailing-10 rule regardless — out of our control,
+            # and per Note E the two rules are not equivalent anyway.
+            return TransportResult(
+                TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
+                detail=f"verification challenge {challenge.verification_code!r} "
+                       "already expired at receipt (platform expires_at) — content "
+                       "not published; a fresh write is the only recovery (Note E)",
+                platform_response=body,
+                publication_status=PublicationStatus.NOT_PUBLISHED,
+                verification_status=VerificationStatus.EXPIRED,
+                **resp_meta,
+            )
+        outcome = self.captcha_verifier.verify(
+            envelope, challenge, submit_fn=self._submit_captcha_fn,
+        )
+        if outcome is CaptchaOutcome.CONFIRMED_SUCCESS:
+            publication = PublicationStatus.PUBLISHED
+            verification = VerificationStatus.PASSED
+            detail = "verification passed — content published"
+        elif outcome is CaptchaOutcome.CONFIRMED_FAILURE:
+            publication = PublicationStatus.NOT_PUBLISHED
+            verification = VerificationStatus.FAILED
+            detail = (
+                f"verification confirmed failed for {challenge.verification_code!r} — "
+                "content not published; a fresh write with a fresh challenge is the "
+                "only recovery (Note E), never an automatic resubmit"
+            )
+        else:  # AMBIGUOUS
+            publication = PublicationStatus.PENDING_VERIFICATION
+            verification = VerificationStatus.REQUIRED
+            detail = (
+                f"verification response ambiguous for {challenge.verification_code!r} — "
+                "content remains pending; not counted as a failure, not retried (Note B)"
+            )
+        return TransportResult(
+            TransportOutcome.SUCCESS, RetryCategory.IDEMPOTENT_WRITE,
+            detail=detail, platform_response=body,
+            publication_status=publication, verification_status=verification,
+            **resp_meta,
         )
 
 
@@ -1121,6 +1294,14 @@ def as_client_transport(
             "retry_category": result.retry_category.value,
             "detail": result.detail,
             "platform_response": result.platform_response,
+            # Note E: additive — publication/verification facts ride along for the
+            # caller; None whenever the result has no created-content response.
+            "publication_status": (
+                result.publication_status.value if result.publication_status else None
+            ),
+            "verification_status": (
+                result.verification_status.value if result.verification_status else None
+            ),
         }
 
     return _transport
