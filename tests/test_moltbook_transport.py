@@ -61,10 +61,12 @@ from moltbook.transport import (
     EligibilityState,
     EnvelopeRejected,
     EnvelopeRejectionReason,
+    HTTPResponse,
     KillSwitch,
     KillSwitchEngaged,
     MoltbookHTTPTransport,
     OperationalFreeze,
+    RateLimitInfo,
     ReconciliationOutcome,
     RetryCategory,
     TransportOutcome,
@@ -100,10 +102,11 @@ def _envelope(**overrides) -> ActionEnvelope:
     return ActionEnvelope.approve(**defaults)
 
 
-def _fake_request(status: int, body: dict | None = None):
-    """A canned request_fn: ignores its args, always returns (status, body)."""
-    def _fn(method, path, json_body, headers):
-        return status, (body if body is not None else {})
+def _fake_request(status: int, body: dict | None = None, headers: dict | None = None):
+    """A canned request_fn: ignores its args, always returns the same HTTPResponse
+    (Implementation Note D shape — the old (status, body) tuple contract is gone)."""
+    def _fn(method, path, json_body, headers_arg):
+        return HTTPResponse(status, (body if body is not None else {}), headers or {})
     return _fn
 
 
@@ -172,7 +175,7 @@ class TestTransportAuthority:
         captured = {}
         def _capture(method, path, body, headers):
             captured["body"] = body
-            return 200, {"id": "post123"}
+            return HTTPResponse(200, {"id": "post123"})
         env = _envelope(payload={"content": "exact bytes", "tag": "m7"})
         transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         transport.send(env)
@@ -184,7 +187,7 @@ class TestTransportAuthority:
         captured = {}
         def _capture(method, path, body, headers):
             captured["path"] = path
-            return 200, {}
+            return HTTPResponse(200, {})
         transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         transport.send(_envelope(action_type=ActionType.POST))
         assert captured["path"] == "/posts"
@@ -206,7 +209,7 @@ class TestTransportAuthority:
         captured = {}
         def _capture(method, path, body, headers):
             captured["body"] = body
-            return 200, {}
+            return HTTPResponse(200, {})
         transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         transport.send(_envelope(
             action_type=ActionType.REPLY, action_id="a4",
@@ -223,7 +226,7 @@ class TestTransportAuthority:
         captured = {}
         def _capture(method, path, body, headers):
             captured["body"] = body
-            return 200, {}
+            return HTTPResponse(200, {})
         transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         transport.send(_envelope(
             action_type=ActionType.REPLY, action_id="a5",
@@ -277,7 +280,7 @@ class TestRetryTaxonomy:
         calls = []
         def _fn(method, path, body, headers):
             calls.append(1)
-            return 503, {}
+            return HTTPResponse(503, {})
         transport = MoltbookHTTPTransport("key", request_fn=_fn, live_config_version=CONFIG_V1)
         result = transport.send(_envelope())
         assert result.outcome is TransportOutcome.OUTCOME_UNKNOWN
@@ -333,7 +336,7 @@ class TestRateLimitedCategory:
         calls = []
         def _fn(method, path, body, headers):
             calls.append(1)
-            return 429, {"error": "rate_limited"}
+            return HTTPResponse(429, {"error": "rate_limited"})
         transport = MoltbookHTTPTransport("key", request_fn=_fn, live_config_version=CONFIG_V1)
         transport.send(_envelope())
         assert len(calls) == 1  # exactly one attempt — the transport never retries itself
@@ -375,6 +378,154 @@ class TestRateLimitedCategory:
         with pytest.raises(EnvelopeRejected) as exc:
             validate_envelope(env, live_config_version=CONFIG_V1, now=env.approval_expiry + timedelta(seconds=1))
         assert exc.value.reason is EnvelopeRejectionReason.EXPIRED
+
+
+# ───────────────── Implementation Note D: request_fn header capture ────────────
+
+class TestHeaderCapture:
+    """
+    Implementation Note D: the request_fn seam returns HTTPResponse (status, body,
+    headers) — the old two-tuple is gone, no compatibility adapter. Required proofs:
+    headers captured on the success path AND the HTTPError path (429 arrives via the
+    latter); missing/malformed Retry-After parse to None, never raise; header lookup
+    is case-insensitive by lowercase normalization; both RFC 9110 Retry-After forms
+    parse; capture never triggers a retry (request count stays exactly one); and a
+    pre-response transport failure surfaces no headers at all.
+    """
+
+    RL_HEADERS = {
+        "X-RateLimit-Limit": "100",
+        "X-RateLimit-Remaining": "99",
+        "X-RateLimit-Reset": "3600",
+    }
+
+    def test_success_response_headers_captured_and_surfaced(self):
+        transport = MoltbookHTTPTransport(
+            "key", request_fn=_fake_request(200, {"id": "p1"}, self.RL_HEADERS),
+            live_config_version=CONFIG_V1,
+        )
+        result = transport.send(_envelope())
+        assert result.outcome is TransportOutcome.SUCCESS
+        assert result.platform_headers == {
+            "x-ratelimit-limit": "100", "x-ratelimit-remaining": "99", "x-ratelimit-reset": "3600",
+        }
+        assert result.rate_limit == RateLimitInfo(limit=100, remaining=99, reset=3600)
+
+    def test_429_response_headers_captured_and_surfaced(self):
+        transport = MoltbookHTTPTransport(
+            "key",
+            request_fn=_fake_request(429, {"error": "rate_limited"}, {**self.RL_HEADERS, "Retry-After": "120"}),
+            live_config_version=CONFIG_V1,
+        )
+        result = transport.send(_envelope())
+        assert result.retry_category is RetryCategory.RATE_LIMITED
+        assert result.rate_limit.retry_after_delay_seconds == 120
+        assert result.rate_limit.retry_after_http_date is None
+        assert result.rate_limit.limit == 100
+
+    def test_real_request_captures_headers_on_success_path(self, monkeypatch):
+        """_real_request itself, urlopen success path: headers reach HTTPResponse."""
+        import io
+        import urllib.request as _ur
+
+        class _FakeResp(io.BytesIO):
+            status = 200
+            headers = {"X-RateLimit-Remaining": "42"}
+
+        monkeypatch.setattr(_ur, "urlopen", lambda req, timeout: _FakeResp(b'{"id": "p1"}'))
+        transport = MoltbookHTTPTransport("key", live_config_version=CONFIG_V1)
+        response = transport._real_request("POST", "/posts", {"content": "x"}, {})
+        assert response.status_code == 200
+        assert response.body == {"id": "p1"}
+        assert response.headers["x-ratelimit-remaining"] == "42"
+
+    def test_real_request_captures_headers_on_httperror_path(self, monkeypatch):
+        """_real_request, HTTPError path — the path a real 429 actually arrives on.
+        Single-path capture would silently fail exactly here (Note D)."""
+        import io
+        import urllib.error
+        import urllib.request as _ur
+        from email.message import Message
+
+        hdrs = Message()
+        hdrs["Retry-After"] = "60"
+        hdrs["X-RateLimit-Remaining"] = "0"
+
+        def _raise(req, timeout):
+            raise urllib.error.HTTPError(
+                "https://example.invalid/posts", 429, "Too Many Requests", hdrs,
+                io.BytesIO(b'{"error": "rate_limited"}'),
+            )
+
+        monkeypatch.setattr(_ur, "urlopen", _raise)
+        transport = MoltbookHTTPTransport("key", live_config_version=CONFIG_V1)
+        response = transport._real_request("POST", "/posts", {"content": "x"}, {})
+        assert response.status_code == 429
+        assert response.body == {"error": "rate_limited"}
+        assert response.rate_limit.retry_after_delay_seconds == 60
+        assert response.rate_limit.remaining == 0
+
+    def test_missing_retry_after_parses_to_none(self):
+        info = HTTPResponse(429, {}, self.RL_HEADERS).rate_limit  # no Retry-After at all
+        assert info.retry_after_delay_seconds is None
+        assert info.retry_after_http_date is None
+        assert info.limit == 100  # the documented all-response headers still parse
+
+    def test_malformed_retry_after_parses_to_none_never_raises(self):
+        """Neither valid delay-seconds nor a valid HTTP-date: both typed fields are
+        None, no exception — the transport reports facts, it doesn't crash on a
+        platform sending garbage. Raw value stays available in headers."""
+        response = HTTPResponse(429, {}, {"Retry-After": "soon-ish", "X-RateLimit-Limit": "abc"})
+        assert response.rate_limit.retry_after_delay_seconds is None
+        assert response.rate_limit.retry_after_http_date is None
+        assert response.rate_limit.limit is None  # malformed int also parses to None
+        assert response.headers["retry-after"] == "soon-ish"
+
+    def test_retry_after_http_date_form_parses(self):
+        response = HTTPResponse(429, {}, {"Retry-After": "Wed, 22 Jul 2026 12:00:00 GMT"})
+        assert response.rate_limit.retry_after_delay_seconds is None
+        assert response.rate_limit.retry_after_http_date == datetime(
+            2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc,
+        )
+
+    def test_header_lookup_is_case_insensitive(self):
+        """Names normalize to lowercase at construction, so any casing the platform
+        sends resolves to the same normalized fields."""
+        for name in ("retry-after", "Retry-After", "RETRY-AFTER", "rEtRy-AfTeR"):
+            assert HTTPResponse(429, {}, {name: "30"}).rate_limit.retry_after_delay_seconds == 30
+
+    def test_header_capture_triggers_no_retry(self):
+        """Capturing a Retry-After value must never become acting on it: exactly one
+        network call happens even when the header says when a retry would succeed."""
+        calls = []
+        def _fn(method, path, body, headers):
+            calls.append(1)
+            return HTTPResponse(429, {"error": "rate_limited"}, {"Retry-After": "1"})
+        transport = MoltbookHTTPTransport("key", request_fn=_fn, live_config_version=CONFIG_V1)
+        result = transport.send(_envelope())
+        assert result.rate_limit.retry_after_delay_seconds == 1
+        assert len(calls) == 1
+
+    def test_pre_response_failure_surfaces_no_headers(self):
+        """No response received → nothing to capture: platform_headers and
+        rate_limit are None, not fabricated empties."""
+        def _fn(method, path, body, headers):
+            raise ConnectionError("network down")
+        transport = MoltbookHTTPTransport("key", request_fn=_fn, live_config_version=CONFIG_V1)
+        result = transport.send(_envelope())
+        assert result.outcome is TransportOutcome.OUTCOME_UNKNOWN
+        assert result.platform_headers is None
+        assert result.rate_limit is None
+
+    def test_safe_read_also_surfaces_headers(self):
+        """§5: ALL responses carry X-RateLimit-* — capture isn't a write-path
+        special case; read_feed surfaces them the same way."""
+        transport = MoltbookHTTPTransport(
+            "key", request_fn=_fake_request(200, {"posts": []}, self.RL_HEADERS),
+            live_config_version=CONFIG_V1,
+        )
+        result = transport.read_feed()
+        assert result.rate_limit == RateLimitInfo(limit=100, remaining=99, reset=3600)
 
 
 # ───────────────────────────── Reconciliation ────────────────────────────────────
@@ -564,7 +715,7 @@ class TestClientAdapter:
         def _capture(method, path, body, headers):
             captured["path"] = path
             captured["body"] = body
-            return 200, {"id": "p1"}
+            return HTTPResponse(200, {"id": "p1"})
         http_transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         client_transport = as_client_transport(http_transport, governance_config_version=CONFIG_V1)
         result = client_transport(action="post", content="hi", headers={})
@@ -579,7 +730,7 @@ class TestClientAdapter:
         def _capture(method, path, body, headers):
             captured["path"] = path
             captured["body"] = body
-            return 200, {"id": "c1"}
+            return HTTPResponse(200, {"id": "c1"})
         http_transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         client_transport = as_client_transport(http_transport, governance_config_version=CONFIG_V1)
         result = client_transport(action="comment", content="hi", headers={}, parent_post_id="p1")
@@ -642,7 +793,7 @@ class TestReplyParentIdentifier:
         def _capture(method, path, body, headers):
             captured["path"] = path
             captured["body"] = body
-            return 200, {"id": "c1"}
+            return HTTPResponse(200, {"id": "c1"})
         http_transport = MoltbookHTTPTransport("key", request_fn=_capture, live_config_version=CONFIG_V1)
         env = ActionEnvelope.approve(
             action_type=ActionType.REPLY,
@@ -848,7 +999,7 @@ class TestCaptchaTransportIntegration:
         captured = {}
         def _capture(method, path, body, headers):
             captured["called"] = True
-            return 200, {"id": "p1"}
+            return HTTPResponse(200, {"id": "p1"})
         kill_switch = KillSwitch()
         transport = MoltbookHTTPTransport(
             "key", request_fn=_capture, live_config_version=CONFIG_V1,
