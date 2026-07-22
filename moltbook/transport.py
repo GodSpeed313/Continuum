@@ -695,37 +695,181 @@ class CaptchaAttemptRecord:
     timestamp: datetime
 
 
+# ── Implementation Note F: solver vocabulary (closed-form, enumerated) ────────
+
+_UNIT_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+}
+_TEEN_WORDS = {
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_TENS_WORDS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+
+# Full 0-99 word-number vocabulary (Note F §F.2 scope boundary): basics plus
+# merged tens+unit compounds ("twentyfive" — the adjacent-token form
+# "twenty five" is combined during extraction instead).
+_WORD_NUMBER_VALUES: dict[str, int] = {
+    **_UNIT_WORDS, **_TEEN_WORDS, **_TENS_WORDS,
+    **{
+        tens_word + unit_word: tens_value + unit_value
+        for tens_word, tens_value in _TENS_WORDS.items()
+        for unit_word, unit_value in _UNIT_WORDS.items()
+        if unit_value != 0
+    },
+}
+
+
+def _collapse_letter_runs(text: str) -> str:
+    """Collapse consecutive duplicate letters ('twenntyy' -> 'twenty'). Letters
+    only — digits are never collapsed ('11' stays '11')."""
+    return re.sub(r"([a-z])\1+", r"\1", text)
+
+
+_COLLAPSED_WORD_NUMBER_VALUES: dict[str, int] = {
+    _collapse_letter_runs(word): value for word, value in _WORD_NUMBER_VALUES.items()
+}
+
+
+def _normalize_captcha_prompt(prompt: str) -> str:
+    """Note F §F.1 normalization: token-scoped, deterministic. Within each
+    whitespace token, delete every non-alphanumeric character adjacent to a
+    letter (obfuscation noise and token punctuation); symbols adjacent only to
+    digits or freestanding survive (an operand's arithmetic sign and genuine
+    digit-form operators are a different category and must be preserved).
+    Lowercases. No cross-token joining."""
+    normalized_tokens = []
+    for token in prompt.split():
+        kept = []
+        for i, ch in enumerate(token):
+            if ch.isalnum():
+                kept.append(ch)
+                continue
+            prev_is_letter = i > 0 and token[i - 1].isalpha()
+            next_is_letter = i + 1 < len(token) and token[i + 1].isalpha()
+            if prev_is_letter or next_is_letter:
+                continue
+            kept.append(ch)
+        cleaned = "".join(kept).lower()
+        if cleaned:
+            normalized_tokens.append(cleaned)
+    return " ".join(normalized_tokens)
+
+
+def _word_number_value(token: str) -> int | None:
+    """Resolve a letters-only token to its 0-99 value: exact vocabulary match
+    first, then the doubled-letter-collapsed form (Note F §F.2). Non-number
+    words return None."""
+    if not token.isalpha():
+        return None
+    if token in _WORD_NUMBER_VALUES:
+        return _WORD_NUMBER_VALUES[token]
+    return _COLLAPSED_WORD_NUMBER_VALUES.get(_collapse_letter_runs(token))
+
+
+# Phrase -> (operator, operands_reversed). Order matters: multi-word phrases
+# before their substrings. "subtracted from" reverses operands ("3 subtracted
+# from 12" = 12 - 3 — Note F §F.3.2 latent-defect fix). "slows by" is the one
+# semantic phrase grounded in the platform's own worked example (§F.0/F.3.1);
+# extend only via observe-then-extend, never speculatively.
+_OPERATOR_PHRASES: tuple[tuple[str, str, bool], ...] = (
+    ("added to", "+", False), ("plus", "+", False), ("add", "+", False),
+    ("subtracted from", "-", True), ("minus", "-", False), ("subtract", "-", False),
+    ("slows by", "-", False),
+    ("multiplied by", "*", False), ("times", "*", False),
+    ("divided by", "/", False), ("divide", "/", False),
+)
+
+
 def solve_captcha_deterministic(prompt: str) -> str:
     """
     Deterministic, narrowly-scoped solver for Moltbook's documented math-word-problem
     challenge (docs/moltbook_api_spec.md §6: numeric string, 2 decimals, e.g. "15.00").
-    Extracts two numbers and one arithmetic operator from the prompt text and computes
-    the answer mechanically — no model generation, no interpretation beyond arithmetic.
+    Extracts exactly two numbers and one arithmetic operator from the prompt text and
+    computes the answer mechanically — no model generation, no interpretation beyond
+    arithmetic.
 
-    Best-effort against the documented shape: the exact challenge wording has not been
-    observed live, so the operator-word list below may need extending once real
-    challenge text is seen. This is flagged here deliberately rather than papered
-    over — a solver that silently guesses on unrecognized wording would defeat the
-    "deterministic and narrowly scoped" requirement.
+    Implementation Note F extended the recognized input shape to the platform's
+    documented obfuscation style (alternating caps, letter-adjacent symbol noise,
+    doubled letters, 0-99 word numbers, and the grounded "slows by" phrase). This is
+    NOT a general semantic solver: normalization is token-scoped and rule-based, the
+    vocabularies are closed-form, and anything unrecognized raises loudly — a solver
+    that silently guesses would defeat the "deterministic and narrowly scoped"
+    requirement (Note B).
     """
-    numbers = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", prompt)]
-    if len(numbers) < 2:
-        raise ValueError(f"captcha prompt does not contain two numbers: {prompt!r}")
+    normalized = _normalize_captcha_prompt(prompt)
+
+    # ── Numbers, in textual order: digit matches (spans kept for the symbol
+    # fallback) + word numbers, with adjacent tens+unit combined (§F.2) ──────
+    positioned: list[tuple[int, float]] = []
+    digit_spans: list[tuple[int, int]] = []
+    for m in re.finditer(r"-?\d+(?:\.\d+)?", normalized):
+        positioned.append((m.start(), float(m.group())))
+        digit_spans.append(m.span())
+
+    tokens = list(re.finditer(r"\S+", normalized))
+    i = 0
+    while i < len(tokens):
+        value = _word_number_value(tokens[i].group())
+        if value is None:
+            i += 1
+            continue
+        if (
+            value in _TENS_WORDS.values()
+            and i + 1 < len(tokens)
+            and (unit := _word_number_value(tokens[i + 1].group())) is not None
+            and 1 <= unit <= 9
+        ):
+            positioned.append((tokens[i].start(), float(value + unit)))
+            i += 2
+            continue
+        positioned.append((tokens[i].start(), float(value)))
+        i += 1
+
+    positioned.sort(key=lambda pv: pv[0])
+    numbers = [v for _, v in positioned]
+    if len(numbers) != 2:
+        raise ValueError(
+            f"captcha prompt must contain exactly two numbers, found {len(numbers)}: "
+            f"{prompt!r} (normalized: {normalized!r})"
+        )
     a, b = numbers[0], numbers[1]
-    lowered = prompt.lower()
 
-    word_to_op = (
-        ("added to", "+"), ("plus", "+"), ("add", "+"),
-        ("subtracted from", "-"), ("minus", "-"), ("subtract", "-"),
-        ("multiplied by", "*"), ("times", "*"),
-        ("divided by", "/"), ("divide", "/"),
-    )
-    op = next((sym for word, sym in word_to_op if word in lowered), None)
+    # ── Operator: word-boundary phrase match first, then symbol fallback over
+    # normalized text at positions outside every digit span — an operand's
+    # sign is never double-read as the operator (§F.3.3) ─────────────────────
+    op = None
+    reversed_operands = False
+    for phrase, sym, rev in _OPERATOR_PHRASES:
+        if re.search(rf"\b{re.escape(phrase)}\b", normalized):
+            op, reversed_operands = sym, rev
+            break
     if op is None:
-        op = next((sym for sym in ("+", "-", "*", "/") if sym in prompt), None)
+        surviving = {
+            m.group()
+            for m in re.finditer(r"[+\-*/]", normalized)
+            if not any(start <= m.start() < end for start, end in digit_spans)
+        }
+        if len(surviving) > 1:
+            raise ValueError(
+                f"captcha prompt has multiple distinct operator symbols "
+                f"{sorted(surviving)!r} — ambiguous, refusing to guess (Note F §F.4): "
+                f"{prompt!r} (normalized: {normalized!r})"
+            )
+        if surviving:
+            op = surviving.pop()
     if op is None:
-        raise ValueError(f"captcha prompt has no recognizable operator: {prompt!r}")
+        raise ValueError(
+            f"captcha prompt has no recognizable operator: {prompt!r} "
+            f"(normalized: {normalized!r})"
+        )
 
+    if reversed_operands:
+        a, b = b, a
     result = {"+": a + b, "-": a - b, "*": a * b, "/": (a / b if b else float("nan"))}[op]
     return f"{result:.2f}"
 
