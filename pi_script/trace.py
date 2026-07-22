@@ -23,6 +23,41 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+# ── Authoritative constraint-status contract ─────────────────────────────────
+# The resolver emits exactly these three statuses. Both rendering paths
+# (render_trace and human_text) validate against this single tuple before
+# rendering or categorizing — an unrecognized status must fail loudly, never
+# render as a violation, never render as satisfied, and never disappear from
+# the narrative behind an all-clear.
+VALID_CONSTRAINT_STATUSES: tuple[str, ...] = ("satisfied", "violated", "suspended")
+
+
+def validate_constraint_statuses(constraints: list[dict[str, Any]]) -> None:
+    """
+    Validate every constraint result before it is rendered or categorized.
+
+    Raises ValueError when:
+    - a status is not in VALID_CONSTRAINT_STATUSES, or
+    - a non-satisfied result has no explanation in its `evaluation` field —
+      a violation or suspension without a stated reason cannot be truthfully
+      rendered. `satisfied` may omit the explanation.
+    """
+    for c in constraints:
+        name = c.get("name", "<unnamed>")
+        status = c.get("status")
+        if status not in VALID_CONSTRAINT_STATUSES:
+            raise ValueError(
+                f"constraint '{name}' has unrecognized status {status!r}; "
+                f"valid statuses: {', '.join(VALID_CONSTRAINT_STATUSES)} — "
+                "refusing to render an unclassifiable result"
+            )
+        if status != "satisfied" and not str(c.get("evaluation") or "").strip():
+            raise ValueError(
+                f"constraint '{name}' has status '{status}' but an empty "
+                "evaluation — every non-satisfied result requires an explanation"
+            )
+
+
 # ── Violation action restrictiveness order (Q1 resolution) ──────────────────
 # Higher index = more restrictive. Used for simultaneous critical conflict resolution.
 _ACTION_RANK: dict[str, int] = {
@@ -51,7 +86,7 @@ def build_trace(data: dict[str, Any]) -> dict[str, Any]:
         timestamp:           str        ISO 8601 — if absent, generated now
         constraints:         list[dict] one entry per evaluated constraint
             name:            str
-            status:          "satisfied" | "violated"
+            status:          "satisfied" | "violated" | "suspended"
             rule_kind:       str
             evaluation:      str        e.g. "tone_score 0.31 < range floor 0.4"
             map_match:       str | None
@@ -100,6 +135,7 @@ def render_trace(trace: dict[str, Any]) -> str:
     lines.append(sep)
 
     constraints = trace.get("constraints", [])
+    validate_constraint_statuses(constraints)
     for i, c in enumerate(constraints):
         prefix = "├──" if i < len(constraints) - 1 else "└──"
         imported_tag = f" (imported from {c['imported_from']})" if c.get("imported_from") else ""
@@ -116,7 +152,9 @@ def render_trace(trace: dict[str, Any]) -> str:
         status = c["status"]
         if status == "satisfied":
             lines.append("│   └── ✓ SATISFIED — no action")
-        else:
+        elif status == "suspended":
+            lines.append("│   └── ⏸ SUSPENDED — not evaluated; rule paused, no action")
+        elif status == "violated":
             vc = c.get("violation_count")
             if vc is not None:
                 if c.get("escalation_fired"):
@@ -132,6 +170,12 @@ def render_trace(trace: dict[str, Any]) -> str:
                 lines.append("│   ├── Flag preserved : audit log maintained")
             lines.append("│   ├── ✗ VIOLATION DETECTED")
             lines.append(f"│   └── Action     : {c.get('action', 'none')}")
+        else:
+            # Unreachable after validate_constraint_statuses — kept explicit so
+            # an unknown status can never fall through to a valid rendering.
+            raise ValueError(
+                f"unrecognized constraint status {status!r} reached the renderer"
+            )
         lines.append("│")
 
     if trace.get("conflict_resolution"):
@@ -161,6 +205,7 @@ def human_text(data: dict[str, Any]) -> str:
     - Simultaneous violations must be listed, not collapsed.
     """
     constraints = data.get("constraints", [])
+    validate_constraint_statuses(constraints)
     violations = [c for c in constraints if c["status"] == "violated"]
     suspended = [c for c in constraints if c["status"] == "suspended"]
     system_state = data["system_state"]
