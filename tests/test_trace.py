@@ -406,5 +406,176 @@ class TestHumanText(unittest.TestCase):
             self.fail(f"build_trace raised on heartbeat trigger: {e}")
 
 
+# ── TestStatusContract ───────────────────────────────────────────────────────
+
+def _manual_trace(constraints, system_state="running", final_action=None):
+    """A trace dict built by hand — bypasses build_trace so renderer-side
+    validation can be tested independently of build-time validation."""
+    return {
+        "timestamp":           "2026-04-21T14:32:07.000Z",
+        "domain":              "ai_governance",
+        "entity":              "CustomerServiceAgent",
+        "trigger_type":        "event",
+        "triggered_by":        "tone_score changed to 0.31",
+        "constraints":         constraints,
+        "conflict_resolution": None,
+        "final_action":        final_action,
+        "system_state":        system_state,
+        "human_text":          "placeholder",
+        "updated_violation_counts": {},
+    }
+
+
+class TestStatusContract(unittest.TestCase):
+    """
+    One authoritative status contract shared by render_trace and human_text.
+
+    The complete release inventory is exactly: satisfied, violated, suspended.
+    Only explicit 'violated' may render the violation glyph or violation
+    language; 'suspended' has its own distinct rendering; an unknown status
+    fails loudly in BOTH rendering paths — it must never render as a
+    violation, render as satisfied, or vanish into an all-clear narrative.
+    Every non-satisfied result requires a non-empty evaluation.
+    """
+
+    # ── Valid statuses render correctly in the tree ──────────────────────────
+
+    def test_tree_satisfied_renders_satisfied(self):
+        trace = build_trace(_base_data([_satisfied_constraint()]))
+        rendered = render_trace(trace)
+        self.assertIn("✓ SATISFIED", rendered)
+        self.assertNotIn("VIOLATION", rendered)
+        self.assertNotIn("SUSPENDED", rendered)
+
+    def test_tree_violated_renders_violation(self):
+        trace = build_trace(_base_data(
+            [_violated_constraint()], final_action="warn"))
+        rendered = render_trace(trace)
+        self.assertIn("✗ VIOLATION DETECTED", rendered)
+
+    def test_tree_suspended_renders_distinct_glyph(self):
+        trace = build_trace(_base_data([_suspended_constraint()]))
+        rendered = render_trace(trace)
+        self.assertIn("⏸ SUSPENDED", rendered)
+        self.assertNotIn("VIOLATION", rendered)
+        self.assertNotIn("✗", rendered)
+        self.assertNotIn("SATISFIED", rendered)
+
+    def test_tree_suspended_shows_reason(self):
+        """The suspension reason (evaluation field) appears in the tree."""
+        trace = build_trace(_base_data(
+            [_satisfied_constraint(), _suspended_constraint()]))
+        rendered = render_trace(trace)
+        self.assertIn("state field unavailable", rendered)
+
+    # ── Violation exclusivity ────────────────────────────────────────────────
+
+    def test_only_violated_renders_violation_glyph(self):
+        """satisfied + suspended together produce zero violation glyphs/language."""
+        trace = build_trace(_base_data(
+            [_satisfied_constraint(), _suspended_constraint()]))
+        rendered = render_trace(trace)
+        self.assertNotIn("✗", rendered)
+        self.assertNotIn("VIOLATION", rendered)
+
+    def test_human_text_suspended_not_described_as_broken(self):
+        data = _base_data([_satisfied_constraint(), _suspended_constraint()])
+        ht = human_text(data)
+        self.assertNotIn("broken", ht.lower())
+        self.assertNotIn("violation", ht.lower())
+
+    # ── Valid statuses represented in human_text ─────────────────────────────
+
+    def test_human_text_satisfied_represented(self):
+        ht = human_text(_base_data([_satisfied_constraint("TempInBounds")]))
+        self.assertIn("TempInBounds", ht)
+        self.assertIn("passed", ht.lower())
+
+    def test_human_text_violated_represented(self):
+        ht = human_text(_base_data(
+            [_violated_constraint("MaintainTone")],
+            final_action="warn"))
+        self.assertIn("MaintainTone", ht)
+        self.assertIn("broken", ht.lower())
+
+    def test_human_text_suspended_only_still_named(self):
+        """A suspended-only evaluation must name the paused rule, never imply
+        a clean pass of that rule."""
+        ht = human_text(_base_data([_suspended_constraint("PolicyVersionCurrent")]))
+        self.assertIn("PolicyVersionCurrent", ht)
+        self.assertIn("paused", ht.lower())
+        self.assertNotIn("passed", ht.lower())
+
+    # ── Unknown statuses fail loudly ─────────────────────────────────────────
+
+    def _unknown_status_constraint(self, status="pending_review"):
+        c = _satisfied_constraint("MysteryRule")
+        c["status"] = status
+        return c
+
+    def test_unknown_status_tree_fails_loudly(self):
+        trace = _manual_trace([self._unknown_status_constraint()])
+        with self.assertRaises(ValueError) as ctx:
+            render_trace(trace)
+        self.assertIn("MysteryRule", str(ctx.exception))
+        self.assertIn("pending_review", str(ctx.exception))
+
+    def test_unknown_status_human_text_fails_loudly(self):
+        data = _base_data([self._unknown_status_constraint()])
+        with self.assertRaises(ValueError):
+            human_text(data)
+
+    def test_unknown_status_build_trace_fails_loudly(self):
+        """build_trace embeds human_text, so an unknown status fails at build
+        time too — it can never reach a stored trace."""
+        data = _base_data([self._unknown_status_constraint()])
+        with self.assertRaises(ValueError):
+            build_trace(data)
+
+    def test_unknown_status_never_produces_all_clear(self):
+        """A satisfied constraint alongside an unrecognized one must NOT yield
+        an 'all rules passed / no action taken' narrative — it must raise."""
+        data = _base_data([
+            _satisfied_constraint("HealthyRule"),
+            self._unknown_status_constraint(),
+        ])
+        with self.assertRaises(ValueError):
+            human_text(data)
+
+    def test_unknown_status_not_silently_rendered_as_violation(self):
+        """Regression pin for the original defect class: a non-satisfied,
+        non-violated status must not fall into the violation branch."""
+        trace = _manual_trace([self._unknown_status_constraint("halted")])
+        try:
+            rendered = render_trace(trace)
+        except ValueError:
+            return  # loud failure is the required behavior
+        self.fail(f"unknown status rendered instead of raising: {rendered!r}")
+
+    # ── Reason requirements ──────────────────────────────────────────────────
+
+    def test_violated_empty_evaluation_rejected(self):
+        v = _violated_constraint(evaluation="")
+        with self.assertRaises(ValueError):
+            render_trace(_manual_trace([v]))
+        with self.assertRaises(ValueError):
+            human_text(_base_data([v], final_action="warn"))
+
+    def test_suspended_empty_evaluation_rejected(self):
+        s = _suspended_constraint()
+        s["evaluation"] = "   "
+        with self.assertRaises(ValueError):
+            render_trace(_manual_trace([s]))
+        with self.assertRaises(ValueError):
+            human_text(_base_data([s]))
+
+    def test_satisfied_may_omit_evaluation(self):
+        c = _satisfied_constraint()
+        c["evaluation"] = ""
+        trace = build_trace(_base_data([c]))
+        rendered = render_trace(trace)
+        self.assertIn("✓ SATISFIED", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

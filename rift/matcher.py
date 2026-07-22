@@ -71,6 +71,72 @@ class MatchResult:
     explanation: str = ""
 
 
+_VALID_TIERS: tuple[str, ...] = ("exact", "semantic", "none")
+
+
+def validate_match_result(result: MatchResult) -> None:
+    """Validate a MatchResult against the field combinations match_declaration
+    actually emits (Ruling 3.1 §3.1.4). An internally inconsistent result must
+    fail loudly rather than fall through to a generic rendering path.
+
+    Emitted combinations:
+    - matched, tier "exact":    map + map_index set, captures allowed, not degraded
+    - matched, tier "semantic": map + map_index + score set, captures always
+                                empty (§3.1.8), not degraded
+    - unmatched, tier "none":   no map/captures; non-empty explanation carries
+                                the distinct no-match reason (empty declaration,
+                                no maps, degraded semantic tier, below
+                                threshold, or ambiguous top candidates)
+    """
+    if result.tier not in _VALID_TIERS:
+        raise ValueError(
+            f"invalid MatchResult: unrecognized tier {result.tier!r}; "
+            f"valid tiers: {', '.join(_VALID_TIERS)}"
+        )
+    if result.matched:
+        if result.tier == "none":
+            raise ValueError("invalid MatchResult: matched=True with tier='none'")
+        if result.map is None or result.map_index is None:
+            raise ValueError(
+                "invalid MatchResult: matched=True requires map and map_index"
+            )
+        if result.degraded:
+            raise ValueError("invalid MatchResult: matched=True cannot be degraded")
+        if result.tier == "semantic":
+            if result.score is None:
+                raise ValueError(
+                    "invalid MatchResult: semantic match requires a score"
+                )
+            if result.captures:
+                raise ValueError(
+                    "invalid MatchResult: semantic tier never extracts captures (§3.1.8)"
+                )
+    else:
+        if result.tier != "none":
+            raise ValueError(
+                f"invalid MatchResult: matched=False requires tier='none', "
+                f"got {result.tier!r}"
+            )
+        if result.map is not None or result.map_index is not None:
+            raise ValueError(
+                "invalid MatchResult: unmatched result cannot carry a map"
+            )
+        if result.captures:
+            raise ValueError(
+                "invalid MatchResult: unmatched result cannot carry captures"
+            )
+        if result.degraded and result.candidates:
+            raise ValueError(
+                "invalid MatchResult: degradation precedes scoring — a degraded "
+                "result cannot carry candidates"
+            )
+        if not result.explanation.strip():
+            raise ValueError(
+                "invalid MatchResult: unmatched result requires a non-empty "
+                "explanation of the no-match reason"
+            )
+
+
 # ── Tier 1 — exact matching (Ruling 3.1 §3.1.5) ──────────────────────────────
 
 def _ws_flexible(literal: str) -> str:
@@ -273,6 +339,7 @@ def render_match(
     margin: float = DEFAULT_AMBIGUITY_MARGIN,
 ) -> str:
     """Human-readable trace block for a match decision (Ruling 3.1 §3.1.10)."""
+    validate_match_result(result)
     lines = ["RIFT MATCH TRACE"]
     if declaration:
         lines.append(f"├── Declaration : \"{declaration}\"")

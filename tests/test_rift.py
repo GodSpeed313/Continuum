@@ -9,7 +9,12 @@ import pytest
 from rift.parser import parse_string, parse_file
 from rift.validator import RiftValidator, validate_file
 from rift.compiler import RiftCompiler
-from rift.matcher import MatchResult, match_declaration, render_match
+from rift.matcher import (
+    MatchResult,
+    match_declaration,
+    render_match,
+    validate_match_result,
+)
 from rift.session import Resolution, RiftSession
 
 RIFT_DIR          = Path(__file__).parent.parent / "rift"
@@ -792,3 +797,160 @@ class TestRiftSessionIndependence:
         )
         assert proc.returncode == 0, proc.stderr
         assert "clean" in proc.stdout
+
+
+class TestMatchResultContract:
+    """MatchResult contract validation (matched × tier × degraded × explanation).
+
+    render_match validates every result before rendering; internally invalid
+    field combinations fail loudly instead of falling through to a generic
+    rendering path. The distinct no-match reasons the matcher already computes
+    (empty declaration, no maps, degraded, below threshold, ambiguous) must
+    each stay visible in the trace — never flattened into one generic no-match.
+    """
+
+    # ── Valid emitted combinations render correctly ──────────────────────────
+
+    def test_render_exact_match(self):
+        r = match_declaration("I shelved Veritas", MATCHER_MAPS)
+        out = render_match(r, "I shelved Veritas")
+        assert "Tier        : exact" in out
+        assert "Captures" in out and "Veritas" in out
+        assert "✓ MATCHED" in out
+
+    def test_render_semantic_match_shows_score_threshold_margin(self, monkeypatch):
+        scores = {"I shelved project": 0.9, "let's revisit project": 0.4,
+                  "I'm done with project": 0.2}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(scores))
+        r = match_declaration("I put it on ice", MATCHER_MAPS)
+        out = render_match(r, "I put it on ice")
+        assert "Tier        : semantic" in out
+        assert "Threshold" in out and "Margin" in out
+        assert "0.9" in out and "← selected" in out
+        assert "✓ MATCHED" in out
+
+    def test_render_below_threshold_keeps_distinct_reason(self, monkeypatch):
+        scores = {"I shelved project": 0.2, "let's revisit project": 0.1,
+                  "I'm done with project": 0.05}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(scores))
+        r = match_declaration("unrelated text", MATCHER_MAPS)
+        out = render_match(r, "unrelated text")
+        assert "✗ NO MATCH" in out
+        assert "below threshold" in out
+        assert "score: 0.2" in out  # candidates stay visible
+
+    def test_render_ambiguous_keeps_distinct_reason(self, monkeypatch):
+        scores = {"I shelved project": 0.9, "let's revisit project": 0.88,
+                  "I'm done with project": 0.1}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(scores))
+        r = match_declaration("wrap up the thing", MATCHER_MAPS)
+        out = render_match(r, "wrap up the thing")
+        assert "✗ NO MATCH" in out
+        assert "ambiguous" in out
+        assert "within margin" in out
+
+    def test_render_degraded_keeps_distinct_reason(self, monkeypatch):
+        monkeypatch.setattr("rift.matcher._encode", lambda texts: None)
+        r = match_declaration("I put it on ice", MATCHER_MAPS)
+        out = render_match(r, "I put it on ice")
+        assert "⚠ DEGRADED" in out
+        assert "✗ NO MATCH" in out
+        assert "unavailable" in out
+
+    def test_render_empty_declaration_reason(self):
+        r = match_declaration("   ", MATCHER_MAPS)
+        out = render_match(r, "   ")
+        assert "✗ NO MATCH" in out and "empty declaration" in out
+
+    def test_render_no_maps_reason(self):
+        r = match_declaration("I shelved Veritas", [])
+        out = render_match(r, "I shelved Veritas")
+        assert "✗ NO MATCH" in out and "no maps declared" in out
+
+    def test_no_match_reasons_are_not_flattened(self, monkeypatch):
+        """The three semantic-tier no-match paths carry distinct explanations."""
+        monkeypatch.setattr("rift.matcher._encode", lambda texts: None)
+        degraded = match_declaration("x y z", MATCHER_MAPS).explanation
+        low = {"I shelved project": 0.2, "let's revisit project": 0.1,
+               "I'm done with project": 0.05}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(low))
+        below = match_declaration("x y z", MATCHER_MAPS).explanation
+        close = {"I shelved project": 0.9, "let's revisit project": 0.88,
+                 "I'm done with project": 0.1}
+        monkeypatch.setattr("rift.matcher._encode", _fake_encode(close))
+        ambiguous = match_declaration("x y z", MATCHER_MAPS).explanation
+        assert len({degraded, below, ambiguous}) == 3
+        assert "DEGRADED" in degraded
+        assert "below threshold" in below
+        assert "ambiguous" in ambiguous
+
+    # ── Required explanations ────────────────────────────────────────────────
+
+    def test_unmatched_requires_explanation(self):
+        r = MatchResult(matched=False, tier="none", explanation="")
+        with pytest.raises(ValueError, match="non-empty"):
+            render_match(r)
+
+    def test_degraded_requires_explanation(self):
+        r = MatchResult(matched=False, tier="none", degraded=True, explanation=" ")
+        with pytest.raises(ValueError, match="non-empty"):
+            render_match(r)
+
+    # ── Invalid combinations fail loudly ─────────────────────────────────────
+
+    def test_unknown_tier_fails_loudly(self):
+        r = MatchResult(matched=True, tier="fuzzy", map={}, map_index=0)
+        with pytest.raises(ValueError, match="tier"):
+            render_match(r)
+
+    def test_matched_with_tier_none_fails_loudly(self):
+        r = MatchResult(matched=True, tier="none", explanation="x")
+        with pytest.raises(ValueError):
+            validate_match_result(r)
+
+    def test_matched_without_map_fails_loudly(self):
+        r = MatchResult(matched=True, tier="exact", map=None, explanation="x")
+        with pytest.raises(ValueError, match="map"):
+            render_match(r)
+
+    def test_matched_degraded_fails_loudly(self):
+        r = MatchResult(matched=True, tier="exact", map={}, map_index=0,
+                        degraded=True, explanation="x")
+        with pytest.raises(ValueError, match="degraded"):
+            validate_match_result(r)
+
+    def test_semantic_match_without_score_fails_loudly(self):
+        r = MatchResult(matched=True, tier="semantic", map={}, map_index=0,
+                        score=None, explanation="x")
+        with pytest.raises(ValueError, match="score"):
+            validate_match_result(r)
+
+    def test_semantic_match_with_captures_fails_loudly(self):
+        r = MatchResult(matched=True, tier="semantic", map={}, map_index=0,
+                        score=0.5, captures={"project": "Veritas"},
+                        explanation="x")
+        with pytest.raises(ValueError, match="captures"):
+            validate_match_result(r)
+
+    def test_unmatched_with_exact_tier_fails_loudly(self):
+        r = MatchResult(matched=False, tier="exact", explanation="x")
+        with pytest.raises(ValueError):
+            validate_match_result(r)
+
+    def test_unmatched_with_map_fails_loudly(self):
+        r = MatchResult(matched=False, tier="none", map={}, map_index=0,
+                        explanation="x")
+        with pytest.raises(ValueError):
+            validate_match_result(r)
+
+    def test_unmatched_with_captures_fails_loudly(self):
+        r = MatchResult(matched=False, tier="none",
+                        captures={"project": "Veritas"}, explanation="x")
+        with pytest.raises(ValueError):
+            validate_match_result(r)
+
+    def test_degraded_with_candidates_fails_loudly(self):
+        r = MatchResult(matched=False, tier="none", degraded=True,
+                        candidates=[{"score": 0.5}], explanation="x")
+        with pytest.raises(ValueError):
+            validate_match_result(r)
