@@ -1168,3 +1168,137 @@ status values — is preserved byte-faithful.
   silently widen the seam.
 * First live observation requires a real write; that write is itself a governed action needing
   its own approved envelope and operator go-ahead — this note does not authorize it.
+
+---
+
+# Implementation Note F: Solver Extension for the Documented Obfuscation Style (2026-07-22, non-binding)
+
+Signed off 2026-07-22 (operator + external review). Non-binding on the locked spec, same class
+as Notes A/B/D/E; amends no numbered section. Note B's core treatment (transport-mechanical
+precondition, deterministic solver, loud failure on unrecognized wording, kill-switch margin)
+stands unchanged — this note extends the solver's *recognized input shape* to what the platform
+documents, nothing else. **This is not a general semantic solver and must never be read as more
+capability than it is:** a closed-form normalizer plus enumerated vocabularies, extended only by
+the observe-then-extend loop Note B prescribes.
+
+## F.0 Grounding
+
+Live `moltbook.com/skill.md` capture (2026-07-21, preserved at
+`Downloads/Moltbook_skill_md_live_capture_2026-07-21.md`), "AI Verification Challenges": the
+challenge is "an obfuscated math problem with **two numbers and one operation (+, -, *, /)**",
+obfuscated with "alternating caps, scattered symbols, and broken words". The platform's worked
+example:
+
+```
+"A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE"
+→ A lobster swims at twenty meters and slows by five → 20 − 5 → "15.00"
+```
+
+Four obfuscation devices are observable in that one example; the prior solver (digit regex +
+contiguous operator words + raw-text symbol fallback) handled none:
+
+1. **Word numbers** — `tW]eNn-Tyy` (twenty), `fI[vE` (five); no digits exist in the prompt.
+2. **Letter doubling** — the letters of `tW]eNn-Tyy` spell `twenntyy`, not `twenty`.
+3. **Symbols scattered inside words** — `]`, `[`, `^`, `/`, `-` attached to or inside letter
+   runs. Known hazard (Note E fixture gotcha): a raw-text symbol fallback misreads a
+   letter-adjacent `-` or `/` as an arithmetic operator.
+4. **Semantic operator phrasing** — the operation is carried by "slows by" (subtraction), the
+   platform's own worked mapping, not an interpretation we invented.
+
+## F.1 Normalization (deterministic, token-scoped)
+
+* Split the prompt on whitespace. Within each token, delete every non-alphanumeric character
+  that is adjacent to a letter (on either side). Lowercase the result.
+* Symbols adjacent only to digits, or freestanding between spaces, survive — genuine digit-form
+  prompts (`"12 + 3"`, `"12/3"`, `"-5"`) are unaffected.
+* No cross-token joining: word boundaries are whitespace; symbols inside a token are noise.
+* **Three-way distinction (design invariant):** a symbol inside/against a word
+  (obfuscation noise — deleted), token-separator punctuation (deleted by the same
+  letter-adjacency rule), and an arithmetic sign on an operand (`-12` — digit-adjacent,
+  preserved) are three different things, and no single stripping mechanism may collapse them
+  into one. Same discipline as the trace status contract: one mechanism must not implicitly
+  conflate categories it was not designed to distinguish.
+
+## F.2 Number extraction
+
+* Digits: existing regex, now over normalized text, with match spans recorded (see F.3.3).
+* Word numbers: closed vocabulary — units (zero…nine), teens (ten…nineteen), tens
+  (twenty…ninety), tens+unit compounds as adjacent tokens ("twenty five") or one merged token
+  ("twentyfive"). **Scope is 0–99 by word**; larger word-form values are unrecognized → loud
+  failure (digits carry no such limit).
+* Doubled-letter tolerance: a letters-only token matches a vocabulary word if it matches
+  exactly OR its consecutive-duplicate-collapsed form equals the word's collapsed form
+  (`twenntyy` → `twenty`). Applied only when exact match fails. A test asserts the collapsed
+  vocabulary has no internal collisions.
+* All numbers (digit and word) are taken in textual order. **Exactly two are required: fewer →
+  raise (unchanged); more than two → raise (NEW — the prior solver silently used the first
+  two; the platform documents exactly two, and silent truncation is a guess).**
+* **Intentional consequence of exhaustive operand recognition (operator ruling at sign-off):**
+  because word numbers now count as operands, a prompt whose flavor text contains an incidental
+  number word ("One crab has 12 legs plus 3 more") has three recognized operands and fails
+  loudly. Teaching the solver to decide which numbers are "flavor" would reintroduce semantic
+  guessing. If Moltbook demonstrates such flavor text in a real challenge, it is handled by
+  another observed, specified extension — never by quietly ignoring certain numbers.
+
+## F.3 Operator resolution (ordered)
+
+1. Enumerated word/phrase list over normalized text, word-boundary aware (`\b`-anchored — the
+   prior substring scan could match "add" inside "paddle"). One grounded addition: **"slows
+   by" → subtraction** (the platform's worked example). No other phrases added; anything else
+   raises loudly, and future live wording extends the list via observe-then-extend. No model
+   generation, ever.
+2. **Operand-order correction (latent-defect fix):** "X subtracted from Y" now computes Y − X.
+   The prior code computed X − Y, which is arithmetically wrong for that phrasing; no existing
+   test pinned the wrong order. All other operators keep textual operand order ("slows by" is
+   first − second, matching the worked example).
+3. Symbol fallback (`+ - * /`) over normalized text only, and **only at positions outside every
+   extracted digit-number span** — an operand's sign is never double-read as the operator.
+   (Concretely: the prior solver returned "15.00" for `"12 -3"` by reading the `-` twice, once
+   as the sign of −3 and once as the operator; that prompt now fails loudly as
+   operator-less, which is the honest reading of an ambiguous input.)
+   Surviving symbols are collected and deduplicated by operator *meaning*: exactly one
+   distinct operation → use it (repeated same-symbol forms, `"12 + 3 +"`, are repetition,
+   not ambiguity); more than one distinct operation (`"12 / 3 -"`) → raise; none → the
+   existing unsupported-operator failure. Picking by text position or by fixed priority
+   would both be guesses — this is enforcement of F.4's existing never-guess requirement,
+   not an amendment (operator ruling at sign-off, 2026-07-22).
+
+## F.4 Failure behavior
+
+Unchanged in kind: anything unrecognized raises `ValueError` loudly — never a guess, never a
+default. New loud-failure conditions: more than two numbers (F.2); sign-consumed-operand
+ambiguity (F.3.3).
+
+## F.5 Residual gaps (pinned, not hidden)
+
+* **Whitespace-shattered words** ("tW eNtY" split across tokens) — the doc says "broken words"
+  but the observed example breaks them only with symbols, never spaces. Out of scope v1; new
+  xfail(strict) pin documents it.
+* Operator phrasings beyond the enumerated list (e.g. "speeds up by", "gains") — not grounded
+  in any observed text; deliberately NOT added. Live failure path is fail-safe: confirmed
+  failure → counter (kill switch at 3 consecutive), and a fresh challenge is available by
+  creating new content per platform expiry rules.
+* Doubled-letter tolerance applies to number-word matching only (as specified); an operator
+  word with doubled letters would raise loudly rather than match.
+
+## F.6 Tests
+
+* The word-number xfail pin becomes a passing test (its reason text requires exactly this flip).
+* **Signed-operand regression group (added at sign-off — this path previously had NO coverage
+  anywhere in the suite):** a negative operand parses with its sign intact; a negative operand
+  alongside a recognized operator WORD resolves the operator from the word with the sign
+  staying attached to the number, never double-counted; the `"12 -3"` double-read case raises.
+* New: fixture `challenge_text` end-to-end; letter-doubling unit; compound word numbers (both
+  adjacent-token and merged forms); digit prompt with letter-adjacent symbol noise resolving
+  via the operator WORD, not the noise symbol; noise symbols with no operator word raising
+  rather than misfiring; "subtracted from" operand order; "slows by" mapping; more-than-two
+  numbers raising; fewer-than-two raising (pin of existing behavior); unknown operator
+  raising; word-boundary regression ("add" must not match inside "paddle");
+  collapsed-vocabulary collision check; whitespace-shattered xfail pin.
+* Existing solver tests pass unchanged.
+
+## F.7 Explicitly out of scope
+
+Verification flow, statuses, kill-switch thresholds, CaptchaVerifier, envelope/governance
+semantics, payload content — all untouched. This note changes one function's recognized input
+shape (`solve_captcha_deterministic`) and nothing about when or why it runs.

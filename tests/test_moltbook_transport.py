@@ -39,7 +39,9 @@ pair per invariant, matching the convention every other M7 constraint used:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +85,7 @@ from moltbook.transport import (
     solve_captcha_deterministic,
     validate_envelope,
 )
+from moltbook.transport import _WORD_NUMBER_VALUES, _collapse_letter_runs
 
 CONFIG_V1 = "config-v1"
 BASE = datetime(2026, 7, 20, 12, 0, 0, tzinfo=timezone.utc)
@@ -879,21 +882,134 @@ class TestCaptchaSolver:
         assert PLATFORM_CAPTCHA_SUSPENSION_LIMIT == 10
         assert CAPTCHA_LOCAL_FAILURE_THRESHOLD < PLATFORM_CAPTCHA_SUSPENSION_LIMIT
 
-    @pytest.mark.xfail(
-        reason="known solver gap (Note B best-effort caveat, now with observed shape): "
-        "the documented challenge example uses obfuscated WORD numbers "
-        "('tW]eNn-Tyy', 'fI[vE') which the digit-regex solver cannot extract — "
-        "extending the solver makes this xpass and forces this pin to update",
-        strict=True,
-    )
     def test_solver_handles_documented_word_number_obfuscation(self):
         """The live skill.md example verbatim: 'twenty meters... slows by five' → 15.00,
-        written in the platform's alternating-caps scattered-symbol style."""
+        written in the platform's alternating-caps scattered-symbol style.
+        Formerly the xfail pin for the pre-Note-F solver gap; Implementation
+        Note F (2026-07-22) closed it, flipping this to a required pass."""
         documented_example = (
             "A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE, "
             "wH-aTs] ThE/ nEw^ SpE[eD?"
         )
         assert solve_captcha_deterministic(documented_example) == "15.00"
+
+    # ── Implementation Note F: extended solver coverage (§F.6) ────────────────
+
+    def test_fixture_challenge_text_solves(self):
+        """The redacted protocol fixture's challenge_text solves end-to-end."""
+        fixture_path = (
+            Path(__file__).parent / "fixtures" / "moltbook_captcha_issuance.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        challenge_text = (
+            fixture["write_response_with_challenge"]["post"]["verification"]["challenge_text"]
+        )
+        assert solve_captcha_deterministic(challenge_text) == "15.00"
+
+    def test_letter_doubling_collapses_to_vocabulary(self):
+        """§F.2 doubled-letter tolerance: 'twenntyy'/'fivve' resolve via
+        consecutive-duplicate collapse."""
+        assert solve_captcha_deterministic("What is twenntyy plus fivve?") == "25.00"
+
+    def test_compound_word_numbers(self):
+        """§F.2: tens+unit as adjacent tokens and as one merged token."""
+        assert solve_captcha_deterministic("What is twenty five plus three?") == "28.00"
+        assert solve_captcha_deterministic("What is twentyfive plus three?") == "28.00"
+
+    def test_signed_operand_parses_with_sign(self):
+        """Signed-operand regression group (added at Note F sign-off — this
+        path previously had NO coverage anywhere in the suite): a negative
+        operand keeps its sign through normalization."""
+        assert solve_captcha_deterministic("What is -12 plus 3?") == "-9.00"
+
+    def test_negative_operand_with_operator_word_sign_not_double_read(self):
+        """§F.3.3: with a recognized operator WORD present, the operand's sign
+        stays attached to the number and is never also read as the operator —
+        including under symbol-noise obfuscation."""
+        assert solve_captcha_deterministic("wH-aTs] -12 pLuS 3?") == "-9.00"
+
+    def test_sign_consumed_operand_ambiguity_raises(self):
+        """§F.3.3 double-read regression: '12 -3' used to return '15.00' by
+        reading the '-' twice (sign of -3 AND the operator). The '-' sits
+        inside the extracted number's span, so no operator remains — loud
+        failure, never a guess."""
+        with pytest.raises(ValueError, match="operator"):
+            solve_captcha_deterministic("12 -3")
+
+    def test_freestanding_symbol_operator_still_works(self):
+        """§F.1: symbols freestanding or digit-adjacent survive normalization
+        and still resolve via the symbol fallback."""
+        assert solve_captcha_deterministic("12 - 3") == "9.00"
+        assert solve_captcha_deterministic("12+3") == "15.00"
+
+    def test_letter_adjacent_noise_never_becomes_operator(self):
+        """The Note E fixture-gotcha class, closed by §F.1/F.3.3: noise '-'
+        inside a word must not be read as subtraction. With an operator word
+        present the word wins; with none, the prompt fails loudly."""
+        assert solve_captcha_deterministic("wH-aTs 12 mInUs 3?") == "9.00"
+        with pytest.raises(ValueError, match="operator"):
+            solve_captcha_deterministic("wH-aTs 12 aNd 3?")
+
+    def test_multiple_distinct_symbols_raise(self):
+        """§F.3.3 (operator ruling at sign-off): more than one distinct
+        operator meaning surviving outside operand spans is ambiguous —
+        neither text position nor fixed priority may pick a winner."""
+        with pytest.raises(ValueError, match="ambiguous"):
+            solve_captcha_deterministic("12 / 3 -")
+        with pytest.raises(ValueError, match="ambiguous"):
+            solve_captcha_deterministic("12 - 3 /")
+
+    def test_repeated_same_symbol_is_not_ambiguous(self):
+        """§F.3.3: repetition of ONE operator meaning is not ambiguity —
+        deduplication is by meaning, not occurrence count."""
+        assert solve_captcha_deterministic("12 + 3 +") == "15.00"
+
+    def test_subtracted_from_operand_order(self):
+        """§F.3.2 latent-defect fix: 'X subtracted from Y' = Y - X."""
+        assert solve_captcha_deterministic("What is 3 subtracted from 12?") == "9.00"
+
+    def test_slows_by_maps_to_subtraction(self):
+        """§F.3.1: the one grounded semantic phrase, from the platform's own
+        worked example."""
+        assert solve_captcha_deterministic("swims at 20 and slows by 5") == "15.00"
+
+    def test_more_than_two_numbers_raises(self):
+        """§F.2 strict-two rule: silent first-two truncation was a guess."""
+        with pytest.raises(ValueError, match="exactly two"):
+            solve_captcha_deterministic("12 plus 3 plus 4")
+
+    def test_fewer_than_two_numbers_raises(self):
+        with pytest.raises(ValueError, match="exactly two"):
+            solve_captcha_deterministic("12 plus nothing")
+
+    def test_unknown_operator_still_raises(self):
+        with pytest.raises(ValueError, match="operator"):
+            solve_captcha_deterministic("combine 12 and 3")
+
+    def test_operator_word_requires_word_boundary(self):
+        """§F.3.1: the prior substring scan matched 'add' inside 'paddle';
+        \\b-anchored matching must not."""
+        with pytest.raises(ValueError, match="operator"):
+            solve_captcha_deterministic("the paddle count is 12 and 3")
+
+    def test_collapsed_vocabulary_has_no_collisions(self):
+        """§F.2: the doubled-letter fallback is only sound if no two
+        vocabulary words share a collapsed form."""
+        collapsed = [
+            _collapse_letter_runs(word) for word in _WORD_NUMBER_VALUES
+        ]
+        assert len(set(collapsed)) == len(_WORD_NUMBER_VALUES)
+
+    @pytest.mark.xfail(
+        reason="Note F §F.5 residual: whitespace-shattered words ('tW eNtY') are "
+        "out of scope v1 — the documented example breaks words only with symbols, "
+        "never spaces. Handling them makes this xpass and forces this pin to update.",
+        strict=True,
+    )
+    def test_whitespace_shattered_words(self):
+        assert solve_captcha_deterministic(
+            "A] lO^bSt-Er aT tW eNtY mE^tErS SlO/wS bY fIvE"
+        ) == "15.00"
 
 
 class TestCaptchaVerifier:

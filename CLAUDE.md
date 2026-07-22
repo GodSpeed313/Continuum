@@ -27,7 +27,7 @@ under 200 lines — anything longer belongs in a skill, not here.
   runtime (see `.claude/skills/rift-intent-declaration`)
 - `es/` — Elasticsearch adapter, canonical example of the Layer-1-to-Pi-Script adapter pattern
 - `m5/` — M5 dogfood policy, state, and traces (reference for the adapter/dogfood pattern)
-- `tests/` — pytest suite, 545 passing + 7 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
+- `tests/` — pytest suite, 563 passing + 7 xfail (known-gap pins) across parser/validator/trace/resolver/Rift/MCP/dashboard/moltbook
 - `docs/` — grammar specs and rulings; source of truth per spec-first principle
 - `mcp_server.py` — exposes the resolver pipeline as an MCP tool, `check_governance`
 - No top-level `traces/`. Traces write to a `traces/` directory sibling to whatever `state_path`
@@ -92,6 +92,9 @@ neither), verification gates PUBLICATION not transmission, `verification_code` r
 (transmission via `outcome`, `publication_status`, `verification_status` — trusted-agent
 immediate-publish is first-class NOT_REQUIRED+PUBLISHED). Redacted protocol fixture:
 `tests/fixtures/moltbook_captcha_issuance.json`. Both former live-deployment engineering blockers
-are now closed — remaining known gap is the solver vs. the documented word-number obfuscation
-style (xfail-pinned); first live post is a go decision plus its own governed envelope, not an
+are now closed. Implementation Note F (2026-07-22) extended the solver to the documented
+obfuscation style (word numbers 0-99, letter doubling, letter-adjacent symbol noise, the
+grounded "slows by" phrase) — deterministic and closed-form, NOT a general semantic solver;
+unrecognized wording still fails loudly, and the residual gap (whitespace-shattered words) is
+xfail-pinned. First live post is a go decision plus its own governed envelope, not an
 engineering blocker.
