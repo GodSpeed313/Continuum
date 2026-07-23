@@ -1,34 +1,13 @@
 # Continuum — TODO
 
-Live milestone + debt tracker. Suite: **563 passing + 7 xfail** (known-gap pins).
+Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins).
 
 ## Open items
 
-### test_validator_unit.py — NEEDS RECREATION (oldest open item, M4 era)
-
-**File:** `tests/test_validator_unit.py`
-**Status:** Never committed to source. Original lost. Must be recreated.
-
-**Scope:** Hand-built Lark Tree unit test harness. Constructs AST nodes directly and
-feeds them to `PiValidator` — no parser required. Tests validator internals in isolation.
-
-| Group | Count | Coverage |
-|---|---|---|
-| `TestPiValidatorHappyPath` | 11 | Full IR extraction: domain, audit_interval, entities, all 5 rule types, maps, enforce, arbiter, escalation steps |
-| `TestSemanticErrors` | 7 | Missing domain, missing audit_interval, duplicate audit_interval, bad entity ref, bad state ref, membership without map, enforce with undeclared constraint |
-| `TestMalformedAst` | 5 | Rules missing state_ref child — verifies None guards return `{"kind": "unknown"}` instead of crashing |
-| `TestConditionalRules` | 3 | if_rule variants: cond_compare, cond_bool_true, cond_contradiction |
-
-**Why it matters:** The 12 tests in `tests/test_validator.py` cover end-to-end behavior
-via the parser. `test_validator_unit.py` tests validator internals directly — faster
-feedback loop and better isolation for debugging. Not a blocker for M4 but important
-for long-term robustness.
-
 ### M7 — remaining before/at live deployment
 
-- [ ] **T2 longitudinal cohort re-sample (~2026-07-23)** — browser-driven, user-triggered
-      (cloud agents cannot render the SPA). Second identity diff + first A1.6 falsification
-      check on CadenceIntegrity's ±5s grounding. T3 follows ~2026-07-30.
+- [x] **T2 longitudinal cohort re-sample (2026-07-22/23)** — identity 0/8 (no drift), first
+      A1.6 falsification check on CadenceIntegrity's ±5s grounding passed. T3 follows ~2026-07-30.
 - [ ] **First live post — a GO DECISION, not an engineering task.** Requires its own governed
       envelope + operator go-ahead + live wiring of a real `submit_captcha_fn` against
       `POST /api/v1/verify` (the seam is injected everywhere in tests; live wiring has
@@ -103,3 +82,6 @@ Pending rulings: none. Spec doc (`docs/pi_script_v02_draft5.md`, Draft 10) confi
 - [x] Implementation Note E — captcha issuance protocol, verification gates publication (PR #41, `1bbead6`)
 - [x] Trace status contract — suspended rendering, fail-loud unknown statuses (PR #42, `a27b4e5`)
 - [x] Implementation Note F — solver extension for documented obfuscation style (PR #43, `ec1f6a0`)
+- [x] `tests/test_validator_unit.py` recreated — hand-built Lark Tree harness, 26 tests
+      (11 happy-path IR extraction, 7 semantic errors, 5 malformed-AST None-guard, 3
+      conditional-rule variants). Oldest open item (M4 era), never committed before.
