@@ -22,9 +22,10 @@ Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins)
       bash/`CLAUDE_*`-env-var shape to the current stdin-JSON hook interface as three Python
       scripts in `.claude/hooks/` (pre-Bash destructive-command guard, post-Write/Edit targeted
       pytest for `pi_script/`/`rift/`/`moltbook/`, Stop-time full suite + Discord notify) wired
-      via `.claude/settings.json`. Local-only by design (`.gitignore` keeps `.claude/*` private
-      except skills). `DISCORD_WEBHOOK_URL` env var enables the notify path; unset = suite still
-      runs, result printed only.
+      via `.claude/settings.json`. Canonical sources now TRACKED in `tools/claude-hooks/`
+      (install-hooks.ps1 / verify-hooks.ps1; `.claude/` stays local and generated — see
+      `docs/scaffold_hooks_reconstruction_note.md` Resolution 2026-07-24). `DISCORD_WEBHOOK_URL`
+      env var enables the notify path; unset = suite still runs, result printed only.
 - [x] `PISCRIPTGOVERNANCE` PAT expiry debt CLOSED 2026-07-23: pre-flight expiry-warning step +
       run-failure Discord net shipped to Melody-Maestro `governance.yml` (PR #1 `c3f5822`),
       token rotated (90-day fine-grained, Contents R/W both repos, expires 2026-10-21 —

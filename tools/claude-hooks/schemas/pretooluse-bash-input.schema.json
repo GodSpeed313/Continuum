@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PreToolUse (Bash) hook input — fields consumed by pre_bash_guard.py",
+  "description": "Claude Code delivers a larger payload on stdin; this schema documents only the fields this hook reads. Unknown fields are ignored. Malformed JSON is treated as 'do not block' by design.",
+  "type": "object",
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "const": "Bash"
+    },
+    "tool_input": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The shell command about to run. Matched against the blocklist regex: rm -rf | git push --force | git push -f."
+        }
+      }
+    }
+  },
+  "x-exit-codes": {
+    "0": "allow the tool call",
+    "2": "block the tool call; stderr is fed back to the model as the reason"
+  }
+}
