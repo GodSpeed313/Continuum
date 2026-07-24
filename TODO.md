@@ -18,12 +18,18 @@ Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins)
 
 ### Infrastructure / process debt
 
-- [ ] Claude Code scaffold hooks (PR #30) never installed — bash/`CLAUDE_*`-env-var shaped,
-      need Windows + current-JSON-interface rework before enabling.
-- [ ] `PISCRIPTGOVERNANCE` PAT (Melody-Maestro governance watcher) expires again ~early
-      September 2026 (60-day fine-grained default, regenerated ~2026-07-08). No expiry
-      warning exists — if #pi-logs Discord goes quiet, check the PAT first
-      (`gh run list -R GodSpeed313/Melody-Maestro`).
+- [x] Claude Code scaffold hooks (PR #30) installed 2026-07-24 — reworked from the scaffold's
+      bash/`CLAUDE_*`-env-var shape to the current stdin-JSON hook interface as three Python
+      scripts in `.claude/hooks/` (pre-Bash destructive-command guard, post-Write/Edit targeted
+      pytest for `pi_script/`/`rift/`/`moltbook/`, Stop-time full suite + Discord notify) wired
+      via `.claude/settings.json`. Local-only by design (`.gitignore` keeps `.claude/*` private
+      except skills). `DISCORD_WEBHOOK_URL` env var enables the notify path; unset = suite still
+      runs, result printed only.
+- [x] `PISCRIPTGOVERNANCE` PAT expiry debt CLOSED 2026-07-23: pre-flight expiry-warning step +
+      run-failure Discord net shipped to Melody-Maestro `governance.yml` (PR #1 `c3f5822`),
+      token rotated (90-day fine-grained, Contents R/W both repos, expires 2026-10-21 —
+      auto-warns #pi-logs at ≤14d ~10/07 and ≤3d ~10/18), renewal doc corrected (PR #2
+      `ed17351`). If #pi-logs goes quiet anyway: `gh run list -R GodSpeed313/Melody-Maestro`.
 
 ### xfail census (7 — deliberate known-gap pins, not failures)
 
