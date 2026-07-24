@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Stop hook input — fields consumed by stop_suite_notify.py",
+  "description": "Claude Code delivers a larger payload on stdin; this schema documents only the fields this hook reads. Unknown fields are ignored. The hook runs the full pytest suite in cwd and posts the result to Discord when DISCORD_WEBHOOK_URL is set in the environment; unset, it prints the result to the transcript only. Notify-only by design: it always exits 0 and never blocks the stop.",
+  "type": "object",
+  "properties": {
+    "cwd": {
+      "type": "string",
+      "description": "Project directory the session is running in; the suite runs here."
+    }
+  },
+  "x-exit-codes": {
+    "0": "always — suite result is reported via stdout and (optionally) Discord, never via exit code"
+  },
+  "x-environment": {
+    "DISCORD_WEBHOOK_URL": "Optional. Discord webhook receiving 'Continuum suite: PASS' / 'Continuum suite: FAIL — check before shipping'. Never commit this value."
+  }
+}

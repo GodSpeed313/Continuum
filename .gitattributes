@@ -1,0 +1,4 @@
+* text=auto
+
+# Trailing double-space is meaningful Markdown (hard line break) - do not flag it
+*.md whitespace=-blank-at-eol

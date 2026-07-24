@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PostToolUse (Write|Edit) hook input — fields consumed by post_edit_tests.py",
+  "description": "Claude Code delivers a larger payload on stdin; this schema documents only the fields this hook reads. Unknown fields are ignored. The hook runs `pytest -k <file stem> -q` when the edited file is a .py under pi_script/, rift/, or moltbook/ relative to cwd; anything else is a no-op.",
+  "type": "object",
+  "properties": {
+    "cwd": {
+      "type": "string",
+      "description": "Project directory the session is running in; used to resolve the edited file's repo-relative path."
+    },
+    "tool_input": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Absolute path of the file that was written or edited."
+        }
+      }
+    }
+  },
+  "x-exit-codes": {
+    "0": "no tests run (out of scope), or targeted tests passed, or pytest collected nothing for -k (pytest exit 5)",
+    "2": "targeted tests failed; the pytest tail on stderr is fed back to the model"
+  }
+}

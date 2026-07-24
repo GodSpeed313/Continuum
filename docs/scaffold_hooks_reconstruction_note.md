@@ -71,3 +71,18 @@ exactly the failure mode that destroys local-only files — the current install 
 this workstation's `.claude/`, so the tracked-canonical-source option now has a concrete
 survivability argument, with this note's file list serving as the reconstruction reference in
 the meantime.
+
+## Resolution 2026-07-24 — tracked infrastructure shipped, this note is CLOSED
+
+The operator decided: tracked. "A laptop crash should not be able to erase process controls that
+matter to how Continuum is developed." Implemented as `tools/claude-hooks/` (canonical hook
+sources + settings template + stdin-schema docs + `install-hooks.ps1` / `verify-hooks.ps1`,
+Windows PowerShell 5.1 compatible), with `.claude/` remaining local and generated — the
+local/tracked boundary PR #30 drew is preserved; the hook *design* is now version-controlled,
+reviewable, and reproducible on another machine.
+
+The verify script's first run on this workstation immediately paid for itself: PowerShell 5.1
+pipes prepend a UTF-8 BOM to native-command stdin, which `json.load` rejects — so
+`pre_bash_guard.py` failed **open** (a guard silently not guarding). All three hooks now decode
+stdin as `utf-8-sig`; the smoke test that caught it is part of `verify-hooks.ps1`, so any host
+with BOM-emitting pipes re-tests the case on every verification run.
