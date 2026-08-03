@@ -1,5 +1,12 @@
 lark>=1.1.7
 pytest>=7.0.0
 sentence-transformers>=2.7.0
-mcp>=1.2.0
+# Upper bound is deliberate, not incidental. mcp 2.0.0 removed `mcp.server.fastmcp`,
+# which `mcp_server.py` imports (`from mcp.server.fastmcp import FastMCP`), breaking
+# collection of tests/test_mcp_server.py. This pin restores a reproducible CI build;
+# it is NOT an endorsement of staying on 1.x. Migrating mcp_server.py to the 2.0 API
+# is tracked separately and must not be done silently as part of an unrelated change —
+# mcp_server.py is a shipped M7 surface exposing the `check_governance` tool.
+# Remove this bound only as part of that tracked migration.
+mcp>=1.2.0,<2.0.0
 filelock>=3.13.0
