@@ -53,9 +53,9 @@ Execution (§E)
 
 | Item | Status | Evidence | Verified by | Verified at |
 |---|---|---|---|---|
-| T3 cohort re-sample complete (~2026-07-30 target) | | | | |
+| T3 cohort re-sample complete (~2026-07-30 target) | Complete | T3 captured 2026-08-02 at T0+17d — three days after the ~2026-07-30 target. The slip is recorded as it occurred and is not adjusted. Capture file `Moltbook_Longitudinal_Cohort_T3__2026-08-02.md` is held outside this repository as of this entry; committing the grounding result is row 4 of this table and remains open. | | |
 | IdentityIntegrity cross-session change-rate threshold grounded from real T1/T2/T3 data (no invented number — mirrors §14.1/§14.2's discipline) | | | | |
-| CadenceIntegrity's second A1.6 falsification check (±5s grounding, Amendment 1) run against T3 and passed | | | | |
+| CadenceIntegrity's second A1.6 falsification check (±5s grounding, Amendment 1) run against T3 and passed | Complete — pending human verification | Passed per Amendment 2 §A2.7. T3 completed the designated falsification check, surfaced a specification-language defect (not a detector defect), and the issue was resolved by Amendment 2. See `docs/m7_cadence_integrity_ruling_amendment_2.md` (LOCKED 2026-08-03, merged as `8115876`), which also discharges the A1.6 standing check. | | |
 | Grounding result committed to `docs/` (addendum to `m7_identity_integrity_ruling.md` / `m7_cadence_integrity_ruling_amendment_1.md`, or a new dated note) — not left only in session memory | | | | |
 
 ### A2. Engineering completeness (per CLAUDE.md test expectations)
