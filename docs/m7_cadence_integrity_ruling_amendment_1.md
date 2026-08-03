@@ -4,6 +4,11 @@
 justification + T2/T3 falsification check; A1.4 documentation-only confirmation). Amends
 `m7_cadence_integrity_ruling.md` (LOCKED 2026-07-17) under its §10 amendment rule.
 
+**Amended:** A1.1 items 1, 2 and 4, A1.2, and A1.5 superseded by
+`m7_cadence_integrity_ruling_amendment_2.md` (LOCKED 2026-08-03) — a specification-language
+correction only. No parameter, detector behavior, code, or test is changed by that amendment;
+the text below is shown as corrected.
+
 **Grounding source:** first longitudinal cohort re-sample, 2026-07-19 (T0+3d), 8 profiles,
 timing data and analysis recorded in
 `Downloads/Moltbook_Longitudinal_Cohort_T1__2026-07-19.md` §2. Timestamps carry 1-second
@@ -14,29 +19,30 @@ display resolution (±1–2s quantization noise per interval).
 ## A1.1 What the re-sample showed
 
 1. **The provisional parameters false-negative on the motivating fixture.** The observed
-   flagship metronome (`neo_konsi_s2bw`, ~180s base period) exhibits occasional scheduler
+   flagship metronome (`neo_konsi_s2bw`, observed 2026-07-19, ~180s base period) exhibits occasional scheduler
    slips of 6–17 seconds (intervals of 187s, 192s, 197s between clean 180±2s stretches).
    Under N=5 consecutive / ±3s jitter with gap-reset, its longest qualifying run is 4 —
    the constraint as provisionally parameterized never fires on the exact pattern that
    motivated it.
-2. **±3s is simultaneously not tight enough to be exclusive.** A Stratum-A account (`vina`)
-   held 7 consecutive intervals within ±1.5s of a 180.5s period. Tightness does not buy
-   discrimination.
+2. **±3s is simultaneously not tight enough to be exclusive.** A Stratum-A account (`vina`,
+   observed 2026-07-19) held 7 consecutive intervals within ±1.5s of a 180.5s period.
+   Tightness does not buy discrimination.
 3. **Scheduler-driven cadence is platform-universal.** Every cohort account across all three
    strata shows second-precision cron signatures (180s metronomes, a 30-min cron with ±5s
    slip, hourly slot alignment at :07:0x). Near-periodic timing therefore has ~zero power to
    distinguish legitimate from manipulative accounts on Moltbook.
 4. **Burst-shaped posting is protected by N and gap-reset, not by jitter tightness.** The
    most organic-plausible pattern for the governed agent (short bursts of 3–4 posts minutes
-   apart, bounded by long gaps — the `bytes` shape) never accumulates 5 consecutive
-   qualifying intervals at ANY tolerance, because gaps break runs at ≤4.
+   apart, bounded by long gaps — burst shape, as observed in `bytes` at T1 (2026-07-19))
+   never accumulates 5 consecutive qualifying intervals at ANY tolerance, because gaps break
+   runs at ≤4.
 
 ## A1.2 Amended parameter values
 
 | Parameter | Was (provisional) | Now | Status |
 |---|---|---|---|
 | Minimum posts before ready | 5 (4 intervals) | **unchanged** | Grounded (nothing contradicted it) |
-| Consecutive intervals required (N) | 5 | **unchanged — 5** | Grounded (N, with gap-reset, is what protects burst posting; lowering N to 4 would fire on the bytes-shaped burst pattern) |
+| Consecutive intervals required (N) | 5 | **unchanged — 5** | Grounded (N, with gap-reset, is what protects burst posting; lowering N to 4 would fire on burst shape) |
 | Common period (P) | per-agent fitted | **unchanged** | Grounded (cohort periods span 180s to hour-multiples; a global P is untenable) |
 | Jitter tolerance (±J) | ±3 seconds | **±5 seconds** | Grounded per §5's designated trigger (must sit above the ±1–2s timestamp quantization floor and absorb observed real-scheduler slip — max in-run deviation seen: 4.5s; catches the flagship's 7-interval run at fitted-P deviation 3.5s). Standing falsification check at T2/T3 — see A1.6 |
 | Rolling window duration | 7 days | **unchanged** | Grounded (no cross-window pattern observed that a different window would have caught) |
@@ -45,10 +51,18 @@ Semantics reminder (unchanged): a run qualifies when the maximum deviation of ea
 consecutive intervals from the per-agent best-fit period P is ≤ J; a detector-recorded gap
 resets the run.
 
-Verified against the cohort dataset, N=5/±5s fires on the sustained metronomes
-(`neo_konsi_s2bw`, `vina`, `Starfish`) and stays silent on burst posting (`bytes`), paired
-posts (`diviner`), irregular heartbeats (`primefoxai`), and varying-multiple hourly slots
-(`lyralink`).
+N=5/±5s fires on **sustained metronomic shape** — a fitted period held across at least five
+consecutive gap-free intervals within tolerance — and remains silent on **burst shape**
+(clustered emission bounded by run-breaking gaps), **paired-post shape**, **irregular
+heartbeat shape**, and **varying-multiple slot shape** (a stable phase slot at differing
+period multiples, so no single fitted P accumulates).
+
+*Historical grounding (2026-07-19, T1 cohort):* these shapes were observed respectively in
+`neo_konsi_s2bw`/`vina`/`Starfish`; `bytes`; `diviner`; `primefoxai`; `lyralink`. These
+attributions are provenance for why each shape was specified and are **not** continuing tests
+of the parameters. Subsequent reads confirm they must not be so used: at T3 (2026-08-02)
+`bytes` had adopted metronomic shape and qualified, and `Starfish` had left metronomic shape
+and did not qualify, in both cases through a change in the account rather than the detector.
 
 ## A1.3 Scope clarification (restating §1, sharpened by finding 3)
 
@@ -81,7 +95,8 @@ the record, the corrected assignments of the original text are:
 
 ## A1.5 Noted for v1.1 (out of scope here)
 
-Slot-phase alignment detection: `lyralink` posts at :07:07–:07:11 of the hour with varying
+Slot-phase alignment detection: `lyralink` (observed 2026-07-19; the same phase behavior was
+still present at T2 and T3) posts at :07:07–:07:11 of the hour with varying
 hour-multiple intervals — invisible to single-period fitting, trivially visible to a
 phase-alignment check. Recorded as a candidate v1.1 detector extension, not part of this
 amendment.
