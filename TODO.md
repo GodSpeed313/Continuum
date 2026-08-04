@@ -12,9 +12,31 @@ Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins)
       envelope + operator go-ahead + live wiring of a real `submit_captcha_fn` against
       `POST /api/v1/verify` (the seam is injected everywhere in tests; live wiring has
       deliberately never happened). Transport spec Note E stop conditions apply.
-- [ ] IdentityIntegrity v1.1 cross-session change-rate threshold — blocked on T2/T3 data.
+- [x] **IdentityIntegrity cross-session grounding — DELIVERED as a documentation act**
+      (`docs/m7_identity_integrity_ruling_addendum_2.md`). T0–T3 closed at 0/8 identity-field
+      changes over 136 profile-days; 95% upper bound ≈ 0.022 changes/profile-day. The addendum
+      records the observation and its boundary: zero observed events bounds legitimate churn from
+      above, it does **not** validate a threshold for enforcement. No threshold was adopted.
 - [ ] CitationClusterIntegrity §5 grounding amendment — trigger is first real M7 citation
       activity by our deployed agent; until then the constraint is structurally NOT EVALUABLE.
+
+> **Readiness authority.** `docs/m7_operator_go_checklist.md` is the authoritative document
+> defining GO readiness. This tracker records work; it does not define preconditions for GO-1.
+> Where the two appear to disagree, the checklist governs.
+
+### M7 — post-GO governance milestones (NOT prerequisites for GO-1)
+
+- [ ] **IdentityIntegrity v1.1 — cross-session identity change detection.** Ruled post-GO by
+      `docs/m7_identity_integrity_ruling_addendum_2.md` §B5: v1.1 is new detection code plus its
+      own ruling, not a number dropped into an existing path (no cross-session comparison
+      mechanism exists — the identity baseline is constructor-supplied per session and a fresh
+      session start is a legitimate reset point by design, base ruling §2). Requires, before any
+      threshold is enforced: (1) explicit field-set **versioning**, with a newly appearing profile
+      field defaulting to NOT EVALUABLE and never to "changed"; (2) at least one observed
+      **positive example** of a legitimate cross-session identity change; (3) **false-positive
+      characterization**, not assumption from zero-event data — required by §6's
+      confidence-paired-to-severity discipline given `freeze + escalate`; (4) its own **spec-first
+      implementation ruling**, including threshold selection as an explicit governance decision.
 
 ### Infrastructure / process debt
 

@@ -6,6 +6,12 @@ the M7 (Moltbook) deployment. Build order: `moltbook/moltbook.pi` (entity + cons
 mechanical-contradiction detector → gate wiring in `moltbook/client.py` → tests including the
 gap-documenting `xfail` for deferred semantic drift.
 
+**Amended by:** `docs/m7_identity_integrity_ruling_addendum_1.md` (LOCKED 2026-07-17 — §A1–A6,
+edge cases and pre-send gate ordering) and `docs/m7_identity_integrity_ruling_addendum_2.md`
+(LOCKED 2026-08-04 — §5's cross-session gap: the longitudinal grounding record is delivered, no
+enforcement threshold is adopted, and v1.1 is ruled post-GO work). Read both alongside this ruling;
+§5 in particular is amended by Addendum 2.
+
 **Numbering note:** No grammar change — Form 2 `equality_rule`
 (`MoltbookSession.identity_drift must equal false`), same shape as CredentialIntegrity /
 LinkRestriction. Application-level M7 ruling, not a 9.x grammar ruling.
