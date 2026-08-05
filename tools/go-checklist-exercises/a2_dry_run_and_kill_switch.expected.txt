@@ -1,0 +1,77 @@
+
+==============================================================================
+ROW 5 — Kill switch (§10) on MoltbookHTTPTransport (live class, stubbed seam)
+==============================================================================
+
+[1] Baseline — switch disengaged, a governed write transmits.
+    engaged             : False
+    write outcome       : TransportOutcome.SUCCESS
+    network calls so far: [('POST', '/posts')]
+
+[2] MANUAL ACTIVATION — KillSwitch.activate_manual(operator=...)
+    engaged             : True
+
+    KillSwitchActivation audit record produced (all fields):
+      mode                   = 'manual'
+      trigger                = 'operator_command'
+      timestamp              = <utc-timestamp>
+      affected_action_class  = '*'
+      detail                 = 'operator=operator GO checklist §A2 row 5 exercise — no incident'
+      extra                  = {}
+
+[3] While engaged — writes blocked, reads unaffected (fail-closed, §10).
+    write raised        : KillSwitchEngaged(kill switch engaged — all outbound writes blocked)
+    network calls attempted by the blocked write: 0
+    read outcome        : TransportOutcome.SUCCESS  (reads continue while engaged)
+    engaged after a successful read: True  (no automatic recovery)
+
+[4] RE-ENABLEMENT — KillSwitch.clear(operator=...)
+    engaged             : False
+
+    Clearance audit record (the log records the clear, not only the engage):
+      mode                   = 'manual'
+      trigger                = 'operator_clear'
+      timestamp              = <utc-timestamp>
+      affected_action_class  = '*'
+      detail                 = 'operator=operator exercise complete'
+      extra                  = {}
+
+[5] Post-clear — a governed write transmits again.
+    write outcome       : TransportOutcome.SUCCESS
+    total network calls : 3  [('POST', '/posts'), ('GET', '/posts'), ('POST', '/posts')]
+
+    Full activation log (2 entries):
+      1. mode='manual' trigger='operator_command' class='*' detail='operator=operator GO checklist §A2 row 5 exercise — no incident'
+      2. mode='manual' trigger='operator_clear' class='*' detail='operator=operator exercise complete'
+
+==============================================================================
+ROW 4 — Dry Run mode (§11) and structural isolation
+==============================================================================
+
+[1] Dry run runs real envelope validation and makes no network call.
+    DryRunTransport has no request_fn parameter at all — the absence of a
+    network seam is structural, not a runtime flag that could be flipped.
+    dry-run action_id   : 'dryrun-<uuid4>'
+    reserved prefix     : 'dryrun-'  is_dry_run_id -> True
+    returned type       : DryRunOutcome  (NOT TransportResult)
+    simulated_outcome   : TransportOutcome.SUCCESS
+    simulated_publication_status  : PublicationStatus.PUBLISHED
+    simulated_verification_status : VerificationStatus.NOT_REQUIRED
+    detail              : 'dry-run: no network call made'
+    instance trace len  : 1  (recorded only to this instance)
+
+[2] The dry-run transport refuses a non-namespaced (production) action_id.
+    raised ValueError   : DryRunTransport requires an action_id in the reserved dry-run namespace (prefix 'dryrun-'); got 'real-post-1'
+
+[3] STRUCTURAL ISOLATION — production ingestion rejects the reserved namespace
+    even under DIRECT attempted ingestion, bypassing the transport entirely.
+    CadenceObservationStore.ingest(dry_run_id)    -> was_new=False, observation_count=0
+    CitationEdgeStore.ingest(dry_run_id)          -> was_new=False, post_count=0
+
+[4] Contrast — a REAL id DOES mutate, proving the rejection is
+    namespace-specific and not a store that silently drops everything.
+    CadenceObservationStore.ingest('real-post-1') -> was_new=True, observation_count=1
+
+==============================================================================
+EXERCISE COMPLETE — no network call made, no production state touched.
+==============================================================================
