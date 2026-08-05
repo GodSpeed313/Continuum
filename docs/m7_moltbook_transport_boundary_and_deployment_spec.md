@@ -1167,9 +1167,16 @@ status values — is preserved byte-faithful.
 ## Correction 1 (2026-08-05): the retired exception surfaces
 
 **Status: a correction to this note's own text. Non-binding, documentation-only. No detector,
-transport behavior, parameter, threshold, fixture, or existing test changes.** Found during the
-§A2 engineering-completeness review of `docs/m7_operator_go_checklist.md`, before any GO-1
-preparation baseline was locked, and ruled by the operator on 2026-08-05.
+transport behavior, parameter, threshold, fixture, or existing test changes.**
+
+**Resolution: accepted by operator ruling on 2026-08-05.** The ruling is the governance decision
+this correction represents — that the drift is resolved in the specification rather than in the
+implementation, and that the surviving surface is proven by test. It is not an attestation of this
+section's wording, and nothing here is an operator signature; the signature fields that record
+operator verification live in `docs/m7_operator_go_checklist.md`.
+
+Found during the §A2 engineering-completeness review of that checklist, before any GO-1
+preparation baseline was locked.
 
 **What this note said.** Point 1 above enumerated the
 `CaptchaVerificationFailed`/`CaptchaVerificationAmbiguous` exception messages as a consumer of
@@ -1217,8 +1224,14 @@ visible rather than inferred later.
 | `moltbook/transport.py` behavior | Unchanged — this correction adds no code |
 | Existing tests | Unchanged — one test added, none modified |
 
-This correction records that the specification had drifted from the implementation. It does not
-reopen the implementation decision, which point 2 already required.
+**How this defect should be classified.** It presented as a coverage gap — a required-coverage
+bullet with no test behind it — but the missing test was the symptom, not the defect. The defect
+is that an implementation-pass decision derived from point 2 was never propagated back into the
+note that binds it, so the specification kept asserting authority over a mechanism it had already
+removed. Recording it as "missing coverage" would misfile a binding-authority drift as a testing
+oversight and would leave the real failure mode — a correct implementation decision that never
+reached the governing record — undocumented. This correction does not reopen the implementation
+decision, which point 2 already required.
 
 ## Stop conditions carried into implementation
 
