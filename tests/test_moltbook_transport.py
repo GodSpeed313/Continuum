@@ -1341,6 +1341,16 @@ class TestNoteECaptchaFlow:
         recorded = [r.verification_code for r in transport.captcha_verifier.log]
         assert recorded == ["moltbook_verify_AAA", "moltbook_verify_BBB"]
 
+    def test_result_detail_carries_the_verification_code_binding(self):
+        """Note E Correction 1: the exception surfaces the note originally named were
+        retired, so the result `detail` is where a failed verification reports WHICH
+        challenge failed. Proves the replacement surface carries the binding — the
+        attempt-record and audit-extra surfaces are covered by their own tests."""
+        transport = _captcha_transport(_confirmed_failure)
+        result = transport.send(_envelope())
+        assert result.verification_status is VerificationStatus.FAILED
+        assert "moltbook_verify_SYNTHETIC0000000000000000" in result.detail
+
     def test_statuses_are_none_where_no_content_was_created(self):
         """Publication/verification are questions only a created-content response
         raises — a failed transmission has neither (None, not fabricated)."""

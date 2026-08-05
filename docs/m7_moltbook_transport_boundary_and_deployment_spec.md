@@ -1054,6 +1054,10 @@ the kill-switch `captcha_suspension_risk` activation's structured audit `extra`,
 `CaptchaVerificationFailed`/`CaptchaVerificationAmbiguous` exception messages raised from
 `send()`. If implementation turns up any consumer not on this list, that's a stop-and-report,
 not a silent addition.
+**[Corrected 2026-08-05 — see "Correction 1" below. The last consumer in this list did not switch:
+both exceptions were retired, and `TransportResult.detail` carries the binding in their place. The
+inventory above is left as written, being an accurate record of what existed when this note was
+drafted.]**
 
 **2. Three independent status fields — no single "success".** The write response can no longer be
 collapsed into one outcome. `TransportResult` (or a captcha-specific result carried by it) gains
@@ -1151,13 +1155,83 @@ status values — is preserved byte-faithful.
 * Ambiguous submit outcome → write stays `PENDING_VERIFICATION`, failure count does NOT
   increment, no retry.
 * Trusted-agent path: no `verification` block → `NOT_REQUIRED` + `PUBLISHED`, zero verify calls.
-* `verification_code` binding preserved across the attempt record / audit extra / exception
+* `verification_code` binding preserved across the attempt record / audit extra / result `detail`
   surfaces; a code is never reused across actions (platform 409 documented) and never reused
-  after a terminal outcome.
+  after a terminal outcome. *(Corrected 2026-08-05 — this bullet previously read "exception
+  surfaces," naming a mechanism this note's own point 2 removes. See "Correction 1" below.)*
 * Expiry honored from `expires_at` only — a fixture with a non-default window must flow through
   with no constant interfering.
 * No pacing/scheduling logic exists: exactly one verify call per solved challenge, regardless of
   documented per-minute limits.
+
+## Correction 1 (2026-08-05): the retired exception surfaces
+
+**Status: a correction to this note's own text. Non-binding, documentation-only. No detector,
+transport behavior, parameter, threshold, fixture, or existing test changes.**
+
+**Resolution: accepted by operator ruling on 2026-08-05.** The ruling is the governance decision
+this correction represents — that the drift is resolved in the specification rather than in the
+implementation, and that the surviving surface is proven by test. It is not an attestation of this
+section's wording, and nothing here is an operator signature; the signature fields that record
+operator verification live in `docs/m7_operator_go_checklist.md`.
+
+Found during the §A2 engineering-completeness review of that checklist, before any GO-1
+preparation baseline was locked.
+
+**What this note said.** Point 1 above enumerated the
+`CaptchaVerificationFailed`/`CaptchaVerificationAmbiguous` exception messages as a consumer of
+`challenge_id` that would *switch to* `verification_code`, and the required-coverage list asked
+for the binding to be proven across "exception surfaces."
+
+**What the implementation did instead.** Both exceptions were **retired**, not renamed
+(`moltbook/transport.py:877-882`). Point 2 of this note is the reason: the write has already
+reached the platform by the time verification runs, so a verification outcome is a classified fact
+carried on the result (`publication_status` / `verification_status`), never an exception that
+would discard the transmission facts this note exists to preserve. The retirement is the correct
+consequence of point 2; point 1's disposition clause was written before that consequence was
+followed through, and this note was never updated to match.
+
+**What carries the binding now.** `TransportResult.detail`, on each of the three outcomes that
+have a `verification_code` to report: `transport.py:1343` (expired at receipt), `:1362` (confirmed
+failure), `:1370` (ambiguous). The other two surfaces named in the coverage bullet are unaffected
+and were already proven by test: the `CaptchaAttemptRecord` binding field and the kill-switch
+`captcha_suspension_risk` activation's structured audit `extra`.
+
+**Corrections applied.**
+
+1. Point 1's consumer inventory is left as written — it accurately records what existed when this
+   note was drafted — and carries a dated pointer to this correction. Its disposition clause is
+   superseded for that one entry: those consumers were retired, not switched.
+2. The required-coverage bullet now names the result `detail` surface instead of "exception
+   surfaces," and is proven by `test_result_detail_carries_the_verification_code_binding`
+   (`tests/test_moltbook_transport.py`, `TestNoteECaptchaFlow`).
+
+**On point 1's stop-and-report clause.** That clause covers a consumer discovered *off* the list.
+What happened here is a different case it did not cover: a consumer *on* the list whose
+disposition changed from "switches" to "retired." Recorded plainly so the gap in the clause is
+visible rather than inferred later.
+
+**What does not change.**
+
+| Element | Status |
+|---|---|
+| `send()` flow order (transmit → parse → solve → submit → classify) | Unchanged |
+| The three status fields and their value sets | Unchanged |
+| `CaptchaAttemptRecord` / audit `extra` binding | Unchanged — already proven by test |
+| Continuum's 3-consecutive-confirmed-failure threshold | Unchanged |
+| Expiry read from `expires_at` only | Unchanged |
+| No pacing/scheduling logic | Unchanged |
+| `moltbook/transport.py` behavior | Unchanged — this correction adds no code |
+| Existing tests | Unchanged — one test added, none modified |
+
+**How this defect should be classified.** It presented as a coverage gap — a required-coverage
+bullet with no test behind it — but the missing test was the symptom, not the defect. The defect
+is that an implementation-pass decision derived from point 2 was never propagated back into the
+note that binds it, so the specification kept asserting authority over a mechanism it had already
+removed. Recording it as "missing coverage" would misfile a binding-authority drift as a testing
+oversight and would leave the real failure mode — a correct implementation decision that never
+reached the governing record — undocumented. This correction does not reopen the implementation
+decision, which point 2 already required.
 
 ## Stop conditions carried into implementation
 

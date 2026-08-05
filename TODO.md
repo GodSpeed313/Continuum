@@ -1,6 +1,6 @@
 # Continuum — TODO
 
-Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins).
+Live milestone + debt tracker. Suite: **590 passing + 7 xfail** (known-gap pins).
 
 ## Open items
 
@@ -37,6 +37,16 @@ Live milestone + debt tracker. Suite: **589 passing + 7 xfail** (known-gap pins)
       characterization**, not assumption from zero-event data — required by §6's
       confidence-paired-to-severity discipline given `freeze + escalate`; (4) its own **spec-first
       implementation ruling**, including threshold selection as an explicit governance decision.
+
+### M7 — post-GO engineering debt (NOT prerequisites for GO-1)
+
+- [ ] **`KillSwitchActivation` records the operator as free text, not a structured field**
+      (**issue #57**). `activate_manual(operator=...)` / `clear(operator=...)` both take an
+      operator, but the audit record has no `operator` field — the identity is embedded in
+      `detail` as an `operator=` prefix, recoverable only by string-parsing. Workable for manual
+      inspection, weak for structured auditing of the mechanism that halts a live agent. Raised
+      during the §A2 row 5 kill-switch exercise and ruled post-GO by the operator 2026-08-05:
+      it does not move the GO-1 preparation baseline.
 
 ### Infrastructure / process debt
 
