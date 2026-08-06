@@ -75,11 +75,11 @@ test_result:
 
 | Item | Status | Evidence | Verified by | Verified at |
 |---|---|---|---|---|
-| Full suite green at `preparation_baseline_commit` — no failures | | | | |
-| Every xfail present in the committed xfail census; none added, removed, or changed without a reviewed explanation | | | | |
-| Implementation Note E's required test coverage (full/empty/partial captcha config, write-with-verification flow, confirmed-failure flow, ambiguous-outcome flow, trusted-agent no-verification flow, `verification_code` binding, expiry-from-`expires_at`, no-pacing assertion) implemented and passing | | | | |
-| Dry Run mode (§11) exercised; structural isolation confirmed (production ingestion rejects the reserved Dry Run identifier namespace) | | | | |
-| Kill switch (§10) manual activation (`KillSwitch.activate_manual(operator=...)`) and re-enablement (`KillSwitch.clear(operator=...)`) both exercised outside Dry Run isolation testing, with a `KillSwitchActivation` audit record produced and reviewed | | | | |
+| Full suite green at `preparation_baseline_commit` — no failures | | | Kevin Brown | 2026-08-05 23:38 EDT |
+| Every xfail present in the committed xfail census; none added, removed, or changed without a reviewed explanation | | | Kevin Brown | 08-05-2026 23:38 EDT |
+| Implementation Note E's required test coverage (full/empty/partial captcha config, write-with-verification flow, confirmed-failure flow, ambiguous-outcome flow, trusted-agent no-verification flow, `verification_code` binding, expiry-from-`expires_at`, no-pacing assertion) implemented and passing | | | Kevin Brown | 23:38 EDT |
+| Dry Run mode (§11) exercised; structural isolation confirmed (production ingestion rejects the reserved Dry Run identifier namespace) | | | Kevin Brown | 2026-08-05 23:38 EDT |
+| Kill switch (§10) manual activation (`KillSwitch.activate_manual(operator=...)`) and re-enablement (`KillSwitch.clear(operator=...)`) both exercised outside Dry Run isolation testing, with a `KillSwitchActivation` audit record produced and reviewed | | | Kevin Brown | 2026-08-05 23:38 EDT |
 
 **Scaffold hooks remain explicitly non-gating for M7 deployment.** (Full finding relocated to
 `docs/scaffold_hooks_reconstruction_note.md` — this checklist stays narrowly executable and does
