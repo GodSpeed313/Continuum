@@ -136,10 +136,15 @@ def render_trace(trace: dict[str, Any]) -> str:
 
     constraints = trace.get("constraints", [])
     validate_constraint_statuses(constraints)
-    for i, c in enumerate(constraints):
-        prefix = "├──" if i < len(constraints) - 1 else "└──"
+    for c in constraints:
+        # Always "├──": a constraint is never the last node of the tree. "└── RESOLUTION"
+        # is appended unconditionally below (and CONFLICT RESOLUTION may precede it), so
+        # closing the last constraint with "└──" produced two sibling "└──" branches and
+        # left the constraint's own continuation lines ("│   ├── …") hanging off a branch
+        # already marked terminal. Section 3.1 of the v0.1 spec shows "├── CONSTRAINT"
+        # (docs/pi_script_v01_draft3.md), so this is the specified form, not a preference.
         imported_tag = f" (imported from {c['imported_from']})" if c.get("imported_from") else ""
-        lines.append(f"{prefix} CONSTRAINT: {c['name']} [priority: {c.get('priority', 'unknown')}]{imported_tag}")
+        lines.append(f"├── CONSTRAINT: {c['name']} [priority: {c.get('priority', 'unknown')}]{imported_tag}")
         lines.append(f"│   ├── Rule kind  : {c['rule_kind']}")
         lines.append(f"│   ├── Evaluation : {c['evaluation']}")
         if c.get("map_match"):
