@@ -198,6 +198,44 @@ class TestRenderTrace(unittest.TestCase):
     def test_contains_entity_name(self):
         self.assertIn("CustomerServiceAgent", self.rendered)
 
+    def test_every_constraint_branch_is_a_tee_never_a_terminal(self):
+        """A constraint is never the tree's last node — "└── RESOLUTION" always follows —
+        so every CONSTRAINT line must open with "├──". Regression: the renderer used to
+        close the final constraint with "└──", producing two sibling "└──" branches and
+        leaving that constraint's own "│   ├── …" continuation lines hanging off a branch
+        already marked terminal. Section 3.1 of the v0.1 spec shows "├── CONSTRAINT"."""
+        constraint_lines = [
+            ln for ln in self.rendered.splitlines() if "CONSTRAINT:" in ln
+        ]
+        self.assertEqual(len(constraint_lines), 2, "fixture should render two constraints")
+        for line in constraint_lines:
+            self.assertTrue(
+                line.startswith("├── CONSTRAINT:"),
+                f"constraint line must open with '├──', got: {line!r}",
+            )
+
+    def test_resolution_is_the_only_terminal_branch(self):
+        """Exactly one top-level "└──" exists, and it is RESOLUTION. Guards the tree
+        against regaining a second terminal branch anywhere above it."""
+        terminals = [
+            ln for ln in self.rendered.splitlines() if ln.startswith("└──")
+        ]
+        self.assertEqual(terminals, ["└── RESOLUTION"])
+
+    def test_tree_shape_holds_with_a_conflict_resolution_block(self):
+        """The CONFLICT RESOLUTION block sits between the constraints and RESOLUTION,
+        so it must not disturb the single-terminal invariant either."""
+        data = _base_data(
+            constraints=[_violated_constraint(), _violated_constraint()],
+            final_action="freeze",
+            system_state="frozen",
+        )
+        data["conflict_resolution"] = "critical outranks high"
+        rendered = render_trace(build_trace(data))
+        self.assertIn("├── CONFLICT RESOLUTION", rendered)
+        terminals = [ln for ln in rendered.splitlines() if ln.startswith("└──")]
+        self.assertEqual(terminals, ["└── RESOLUTION"])
+
     def test_contains_domain(self):
         self.assertIn("ai_governance", self.rendered)
 
