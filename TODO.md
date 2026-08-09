@@ -68,6 +68,27 @@ Live milestone + debt tracker. Suite: **590 passing + 7 xfail** (known-gap pins)
       persisted trace-store reference — is a governance decision, not an implementation detail,
       and is deliberately not settled here. Does not move the GO-1 preparation baseline.
 
+- [ ] **PG-3 — `arbiter` block is mandatory at validation time but has no runtime consumer**
+      (**issue #65**). `_check_arbiter_required` (`pi_script/validator.py:608`) refuses to load a
+      policy without an `arbiter` block; `_process_arbiter` parses it into `ir["arbiter"]`. Nothing
+      then reads it: `pi_script/resolver.py` has zero references, and across the whole `pi_script/`
+      package the identifier appears in `validator.py` only. All four fields —
+      `acceptable_evolution`, `never_acceptable`, `requires_human_review`, `acceptance_monitor` —
+      are parsed, stored, and never consulted. **Not currently an enforcement defect:** no runtime
+      self-modification pathway exists anywhere in `pi_script/` or `rift/` for the arbiter to
+      govern, so the block has nothing to rule on and nothing is escaping a control that would
+      otherwise fire. **The risk is misreading, not bypass** — `moltbook.pi`'s `never_acceptable`
+      names `credential_integrity_removal`, `key_isolation_bypass`, and `presend_gate_disable`,
+      which read as live prohibitions and are inert text; and `rift/compiler.py:173` already emits
+      an empty `acceptable_evolution:  []` placeholder whose only purpose is to satisfy the gate.
+      No ruling records enforcement as deferred, so the block's status is undocumented rather than
+      decided. Whether to wire a consumer when a self-modification pathway lands, document the
+      block as declarative until then, or relax the mandatory requirement is a governance decision
+      about Ruling 9.7 and is not settled here. Surfaced 2026-08-08 during operator review of the
+      §A4 rehearsal evidence, in the course of establishing that the row's "Arbiter decision" means
+      the resolver's permission decision (transport spec §9/§11, `CLAUDE.md`) and not this block.
+      Does not move the GO-1 preparation baseline.
+
 ### Infrastructure / process debt
 
 - [x] Claude Code scaffold hooks (PR #30) installed 2026-07-24 — reworked from the scaffold's
