@@ -107,7 +107,7 @@ not carry unrelated infrastructure-debt design discussion.)
 
 | Item | Status | Evidence | Verified by | Verified at |
 |---|---|---|---|---|
-| At least one Dry Run (§11) executed against a payload representative of the intended first post/reply — same shape, same `action_type` — producing detector results, Arbiter decision, approval trace, Approved Action Envelope, and simulated transport outcome, reviewed and free of surprises | | | | |
+| At least one Dry Run (§11) executed against a payload representative of the intended first post/reply — same shape, same `action_type` — producing detector results, Arbiter decision, approval trace, Approved Action Envelope, and simulated transport outcome, reviewed and free of surprises | | | Kevin Brown | 2026-08-08 21:06 EDT |
 
 ---
 
