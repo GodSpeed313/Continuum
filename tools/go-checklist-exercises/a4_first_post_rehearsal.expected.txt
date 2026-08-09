@@ -1,0 +1,186 @@
+§A4 REHEARSAL — first governed POST, dry run
+docs/m7_operator_go_checklist.md §A4 · action_type POST ruled 2026-08-08
+Produces the five artifacts the row names. Authorizes nothing.
+
+==============================================================================
+STEP 1 — DETECTOR RESULTS (shipped detectors, moltbook/detector.py)
+==============================================================================
+
+Representative POST payload (shape and action_type, not final text):
+    'This account is governed by Continuum. Every outbound post is evaluated against a written policy before it is sent, and the resolution trace for that evaluation is recorded.'
+    length: 173 chars
+
+[1] scan_content — CredentialIntegrity
+    is_leak             : False
+    detail              : 'no credential detected'
+
+[2] scan_links — LinkRestriction
+    is_violation        : False
+    findings            : []
+    novel (unsourced)   : []
+    allowlist in force  : ('github.com', 'moltbook.com', 'continuum.dev')
+
+[3] scan_identity — IdentityIntegrity
+    is_contradiction    : False
+    kind                : 'none'
+    detail              : 'identity consistent'
+
+[4] The full pre-send gate, via the shipped MoltbookClient.send() path.
+    Transport seam is a recording stub — this proves the gates PASSED and
+    the action reached the transport boundary; it makes no network call.
+    reached transport   : [{'action': 'post', 'content': 'This account is governed by Continuum. Every outbound post is evaluated against a written policy before it is sent, and the resolution trace for that evaluation is recorded.', 'parent_post_id': None}]
+    latches after send  : credential_exposed=False link_violation=False identity_drift=False
+
+==============================================================================
+STEP 2 — RESOLVER DECISION + APPROVAL TRACE (pi_script/resolver.py)
+==============================================================================
+
+Snapshot submitted (MoltbookSession pass — the three session constraints):
+    credential_exposed     = False
+    link_violation         = False
+    identity_drift         = False
+    session_id             = 'a4-rehearsal'
+    (snapshot carries no API key: True)
+
+Resolver exit code    : 0   (0 = all satisfied)
+system_state          : 'running'
+final_action          : None
+conflict_resolution   : None
+
+Per-constraint rulings:
+    CredentialIntegrity        satisfied  credential_exposed = False, equals expected False
+    LinkRestriction            satisfied  link_violation = False, equals expected False
+    IdentityIntegrity          satisfied  identity_drift = False, equals expected False
+
+RESOLUTION TRACE as rendered by the shipped renderer:
+    
+    RESOLUTION TRACE
+    ════════════════════════════════════════════════════════
+    Timestamp    : <utc-timestamp>
+    Domain       : moltbook_agent_governance
+    Entity       : MoltbookSession [session_id: a4-rehearsal]
+    Trigger      : event — state snapshot received for MoltbookSession
+    ════════════════════════════════════════════════════════
+    ├── CONSTRAINT: CredentialIntegrity [priority: critical]
+    │   ├── Rule kind  : equality_rule
+    │   ├── Evaluation : credential_exposed = False, equals expected False
+    │   └── ✓ SATISFIED — no action
+    │
+    ├── CONSTRAINT: LinkRestriction [priority: high]
+    │   ├── Rule kind  : equality_rule
+    │   ├── Evaluation : link_violation = False, equals expected False
+    │   └── ✓ SATISFIED — no action
+    │
+    ├── CONSTRAINT: IdentityIntegrity [priority: high]
+    │   ├── Rule kind  : equality_rule
+    │   ├── Evaluation : identity_drift = False, equals expected False
+    │   └── ✓ SATISFIED — no action
+    │
+    └── RESOLUTION
+        ├── System state : running
+        └── All rules were checked and passed: CredentialIntegrity, LinkRestriction, and IdentityIntegrity. Everything is within acceptable bounds. No action was taken.
+
+==============================================================================
+STEP 3 — LONGITUDINAL CONSTRAINTS (separate governance passes, by ruling)
+==============================================================================
+
+The two Longitudinal Constraints are NOT part of the MoltbookSession pass —
+each submits its own MoltbookAgentProfile snapshot behind its own readiness
+gate (rulings §2/§3). Shown here so this rehearsal accounts for all five
+enforced constraints rather than silently covering three.
+
+For a FIRST post both are structurally NOT EVALUABLE — there is no posting
+history to compute from. That is the correct first-post state, not a gap.
+
+[1] CadenceIntegrity — run_cadence_governance()
+    evaluated           : False   (False = stopped at the readiness gate)
+    resolver saw the rule: False
+    exit_code           : 0
+    pause_applied       : False
+    rendered:
+      CONSTRAINT: CadenceIntegrity
+      Observation readiness : false
+      Evaluation             : insufficient post history (0/4 required intervals)
+      Result                 : NOT EVALUABLE
+      Action                 : none
+
+[2] CitationClusterIntegrity — run_citation_governance()
+    §5 thresholds are UNDEFINED until a grounding amendment, so this is
+    not-evaluable for two independent reasons (no history, no parameters).
+    evaluated           : False
+    resolver saw the rule: False
+    exit_code           : 0
+    pause_applied       : False
+    rendered:
+      CONSTRAINT: CitationClusterIntegrity
+      Observation readiness : false
+      Evaluation             : parameters ungrounded (ruling §5 — no amendment has set thresholds yet)
+      Result                 : NOT EVALUABLE
+      Action                 : none
+
+==============================================================================
+STEP 4 — APPROVED ACTION ENVELOPE (shipped ActionEnvelope.approve)
+==============================================================================
+
+*** HARNESS-LOCAL BINDING — READ THIS BEFORE READING THE ENVELOPE ***
+The trace-to-envelope binding below is performed by THIS SCRIPT. It does
+not assert that the shipped Moltbook client performs that join; it does
+not. In shipped code `as_client_transport` defaults approval_trace_id to a
+fresh uuid4 unbound to any resolver trace (filed: TODO.md post-GO debt).
+
+    bound over fields   : ['domain', 'entity', 'trigger_type', 'triggered_by', 'constraints', 'conflict_resolution', 'final_action', 'system_state']
+    excluded            : ['timestamp', 'human_text'] — when it ran, not what was ruled
+    approval_trace_id   : 'a4-rehearsal-trace-781e72d44f510130'
+
+Payload — POST shape: content only, no parent_post_id (that is what makes
+it a POST and not a REPLY).
+    payload keys        : ['content']
+    canonical_payload_hash: 98af26eb640069341703a42f40d393771f3036a04bbf399bd7a1fd2ffefa962d
+
+Approved Action Envelope (all fields):
+    action_id                  = 'dryrun-<uuid4>'
+    action_type                = <ActionType.POST: 'post'>
+    payload                    = {'content': 'This account is governed by Continuum. Every outbound post is evaluated against a written policy before it is sent, and the resolution trace for that evaluation is recorded.'}
+    approval_trace_id          = 'a4-rehearsal-trace-781e72d44f510130'
+    approval_timestamp         = <utc-timestamp>
+    approval_expiry            = <utc-timestamp>
+    governance_config_version  = 'config-v1'
+    payload_hash               = '98af26eb640069341703a42f40d393771f3036a04bbf399bd7a1fd2ffefa962d'
+
+    action_id is dry-run namespaced: True
+    payload_hash matches payload   : True
+
+==============================================================================
+STEP 5 — SIMULATED TRANSPORT OUTCOME (shipped DryRunTransport, §11)
+==============================================================================
+
+DryRunTransport ran real envelope validation (§4 freshness checks) and made
+no network call — it has no request_fn parameter to inject one into.
+
+    returned type                 : DryRunOutcome  (NOT TransportResult)
+    simulated_outcome             : TransportOutcome.SUCCESS
+    simulated_publication_status  : PublicationStatus.PUBLISHED
+    simulated_verification_status : VerificationStatus.NOT_REQUIRED
+    detail                        : 'dry-run: no network call made'
+    envelope carried on outcome   : 'dryrun-<uuid4>'
+    instance trace length         : 1  (recorded to this instance only)
+
+==============================================================================
+CONTROL — the clean pass above is a real pass, not an inert pipeline
+==============================================================================
+
+A rehearsal that only shows a clean run cannot distinguish 'the detectors
+evaluated this payload and found nothing' from 'the detectors are not
+wired'. One deliberate violation, same pipeline, same client construction.
+
+This control produces NO envelope and NO dry run: it is blocked at the
+pre-send gate, which is the point.
+
+    payload           : ...'orded. Details: https://unknown-host.example/x'
+    raised            : LinkBlocked(post blocked by pre-send gate: novel link(s) not traceable to source or allowlist: unknown-host.example)
+    latches after block: credential_exposed=False link_violation=True identity_drift=False
+    (the latch is set even though the send was blocked — addendum A5)
+
+==============================================================================
+REHEARSAL COMPLETE — no network call made, no production state touched.
+==============================================================================

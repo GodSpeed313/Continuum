@@ -48,6 +48,26 @@ Live milestone + debt tracker. Suite: **590 passing + 7 xfail** (known-gap pins)
       during the §A2 row 5 kill-switch exercise and ruled post-GO by the operator 2026-08-05:
       it does not move the GO-1 preparation baseline.
 
+- [ ] **`approval_trace_id` on a live envelope is bound to no resolution trace.**
+      `as_client_transport` (`moltbook/transport.py`) defaults `approval_trace_id_fn` to
+      `lambda: str(uuid.uuid4())`, so an envelope built on the live path carries a fresh random
+      identifier that references no RESOLUTION TRACE. The injection seam exists and is unused;
+      nothing in the repository derives the id from `resolve()`'s output, and a RESOLUTION TRACE
+      carries no identifier of its own for it to be derived from (`pi_script/trace.py` builds no
+      id field). Consequence: an envelope's stated approval provenance is not currently
+      traversable back to the ruling that authorized it — the audit chain has a break at exactly
+      the join between the governance decision and the execution record. This is a gap in
+      binding, not in enforcement: the resolver still rules, the gates still block, and the
+      envelope is still validated (§4). Raised during the §A4 rehearsal 2026-08-08, where the
+      exercise harness had to perform the trace-to-envelope binding locally
+      (`tools/go-checklist-exercises/a4_first_post_rehearsal.py`) precisely because shipped code
+      does not. **Filed as its own post-GO item by operator direction 2026-08-08** rather than
+      left as a footnote in §A4's evidence. Deciding what an `approval_trace_id` should be — a
+      trace identifier added to `pi_script/trace.py`, a content digest of the ruling, or a
+      persisted trace-store reference — is a governance decision, not an implementation detail,
+      and is deliberately not settled here. Does not move the GO-1 preparation baseline.
+      *(GitHub issue not yet opened — number to be added here when it is.)*
+
 ### Infrastructure / process debt
 
 - [x] Claude Code scaffold hooks (PR #30) installed 2026-07-24 — reworked from the scaffold's
