@@ -48,7 +48,8 @@ Live milestone + debt tracker. Suite: **590 passing + 7 xfail** (known-gap pins)
       during the §A2 row 5 kill-switch exercise and ruled post-GO by the operator 2026-08-05:
       it does not move the GO-1 preparation baseline.
 
-- [ ] **`approval_trace_id` on a live envelope is bound to no resolution trace.**
+- [ ] **PG-2 — `approval_trace_id` on a live envelope is bound to no resolution trace**
+      (**issue #64**).
       `as_client_transport` (`moltbook/transport.py`) defaults `approval_trace_id_fn` to
       `lambda: str(uuid.uuid4())`, so an envelope built on the live path carries a fresh random
       identifier that references no RESOLUTION TRACE. The injection seam exists and is unused;
@@ -66,7 +67,6 @@ Live milestone + debt tracker. Suite: **590 passing + 7 xfail** (known-gap pins)
       trace identifier added to `pi_script/trace.py`, a content digest of the ruling, or a
       persisted trace-store reference — is a governance decision, not an implementation detail,
       and is deliberately not settled here. Does not move the GO-1 preparation baseline.
-      *(GitHub issue not yet opened — number to be added here when it is.)*
 
 ### Infrastructure / process debt
 
