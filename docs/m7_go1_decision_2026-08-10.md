@@ -59,7 +59,8 @@ and it does not assert that the operator's review occurred at that commit.
   `preparation_baseline_commit` reviewed at GO-1 from the `execution_commit_reference` that
   actually transmits, precisely because live captcha wiring (C2) happens *after* GO-1.
 - This ruling discharges the §A3 row 2 finding and that finding only. The two findings recorded at
-  §A3 row 1 are separate, are **not** addressed here, and remain open. See §6.
+  §A3 row 1 are separate. Finding (b) is ruled separately at §6; finding (a) is **not** addressed
+  by this record and remains open.
 
 ---
 
@@ -113,7 +114,9 @@ Evidence (pointer to completed §A record):
              over the rehearsal artifact at cfd6897, action_type POST, with negative
              control. All thirteen Verified by Kevin Brown. Structural corroboration:
              tools/verify_go_checklist.py --require-complete A → SATISFIED, 0 defective.
-             The reading of "at preparation_baseline_commit" is ruled at §2 of this record.
+             Two readings are ruled by this record and are not inherited from elsewhere:
+             "at preparation_baseline_commit" at §2, and the envelope §3 GO-1 precondition
+             on t3_grounding_reference at §6. Both rulings are dated 2026-08-10.
 
 Authorized by (operator):
 
@@ -154,11 +157,11 @@ Stated explicitly so none of it is inferred from silence.
 
 ---
 
-## 6. Open items, ruled post-GO — granted with these in view
+## 6. Known items — granted with these in view
 
-This authorization is granted in knowledge of the following, each previously ruled non-blocking for
-GO-1. Listing them here records that they were in view at the moment of authorization rather than
-overlooked.
+This authorization is granted in knowledge of the following. Three were previously ruled post-GO,
+one is ruled by this record, and one remains open. Listing them here records that they were in view
+at the moment of authorization rather than overlooked.
 
 | Item | Issue | Ruling |
 |---|---|---|
@@ -166,11 +169,11 @@ overlooked.
 | `approval_trace_id` on a live envelope is bound to no resolution trace — `as_client_transport` defaults it to a fresh `uuid4` | #64 (PG-2) | Post-GO (2026-08-08, §A4). Disclosed verbatim in the rehearsal transcript. |
 | The `arbiter MoltbookArbiter { … }` block is mandatory at validation time but has no runtime consumer | #65 (PG-3) | Post-GO (2026-08-08, §A4). Governs self-modification (Ruling 9.7), not content actions. |
 | `docs/m7_first_live_post_governed_envelope.md` imposes GO-2 gating obligations while still marked `Status: DRAFT` | — | **Open, unresolved.** Finding (a) of §A3 row 1 (2026-08-07). |
-| Envelope §3 states `t3_grounding_reference` must be populated before GO-1, whereas this checklist carries the rider only at §D (GO-2) and §E | — | **Open, unresolved.** Finding (b) of §A3 row 1 (2026-08-07). A rider-population question falling due at §D. |
+| Envelope §3 states `t3_grounding_reference` must be populated before GO-1, whereas this checklist carries the rider only at §D (GO-2) and §E | — | **Ruled 2026-08-10 — satisfied.** Finding (b) of §A3 row 1 (2026-08-07). See the ruling below. |
 
-The last two rows are **not** post-GO rulings. They are open governance questions, identified
-during the §A3 reading and deliberately not settled there, and they are not settled by this record
-either. They are named here so that granting GO-1 is not read as having disposed of them.
+The `Status: DRAFT` row is **not** a post-GO ruling. It is an open governance question, identified
+during the §A3 reading and deliberately not settled there, and it is not settled by this record
+either. It is named here so that granting GO-1 is not read as having disposed of it.
 
 **Finding (b) bears directly on this record and is treated at length, because its own wording makes
 it a GO-1 precondition rather than a later question.** `docs/m7_first_live_post_governed_envelope.md`
@@ -186,20 +189,29 @@ What was verified for this record, and no more than this:
 - **No first-post rider instance exists in the repository.** The rider is assembled at GO-2 under
   §D. There is therefore no populated field today, because there is no instance to carry one.
 
-The two available readings are set out without choosing between them:
+**The ruling.** By operator ruling on 2026-08-10:
 
-1. **Substance.** §3 requires the grounding record to exist and be committed before GO-1, so that
-   the field has a real referent when the rider is later assembled. On this reading the
-   requirement is satisfied, and no rider instance is needed now. This reading is supported by the
-   field's own `Source` column — "Committed `docs/` rulings" — and by the fact that the rider
-   cannot be fully populated before GO-1 by construction, since `execution_commit_reference` and
-   `correction_procedure_reference` both derive from work that GO-1 is what authorizes.
-2. **Form.** §3 means an actual rider instance with the field filled must exist before GO-1 is
-   granted. On this reading GO-1 cannot be signed until such an instance is created.
+> The requirement is satisfied substantively because `t3_grounding_reference` is a reference to
+> committed grounding artifacts, and both required referents exist before GO-1. The rider instance
+> itself is intentionally created later at GO-2.
 
-**This record does not rule between them.** Selecting a reading is an operator act, as the
-`preparation_baseline_commit` clause at §2 was. If reading 2 is adopted, this record is not
-signable as it stands and the rider instance must come first.
+**Consequences of the ruling, stated so they are not inferred:**
+
+- Envelope §3's GO-1 precondition is **satisfied**, and finding (b) of §A3 row 1 is discharged.
+- The ruling turns on what the field *is* — a reference — so what must exist before GO-1 is the
+  thing referred to, not the instance that will later carry the reference. This is consistent with
+  the field's own `Source` column at envelope §2, "Committed `docs/` rulings," and with §2's rule
+  that every rider field is "a hard requirement gated by GO-2 (§D of the checklist)."
+- **No amendment to the envelope is made, required, or implied by this record.** As with §2, this
+  is a ruling on how existing text is to be read.
+- It rules on `t3_grounding_reference` only. It grants no relief on any other rider field, and in
+  particular does not weaken envelope §2's rule that an empty or `"N/A"` field is a stop, not a
+  waiver, or §3's requirement that `captcha_configuration_state`,
+  `correction_procedure_reference`, `execution_commit_reference`, and `operator_go_reference` all
+  be populated before the rider is complete and the envelope may reach the transport.
+- It does not attest that the two referenced documents are correct, complete, content-frozen, or
+  independently authorized. §A1 rows 2 and 4 carry their own version-bound attestations, and this
+  record inherits their scope without widening it.
 
 ---
 
