@@ -1,7 +1,8 @@
 # M7 — GO-1 Decision Record (Deployment Preparation Authorization)
 
-**Status: DRAFT — `Status` and `Evidence` drafted for operator review; `Authorized by` and
-`Authorized at` are unfilled. This record authorizes nothing until those two fields are signed.**
+**Status: LOCKED — signed. GO-1 is granted.** Authorized by Kevin Brown at 2026-08-10 23:47 EDT,
+recorded at §4. The authorization is in effect: §C preparation work may begin, subject to the
+limits at §5 — in particular that C1 precedes C2, and that nothing here permits transmission.
 
 This is the dated artifact required by `docs/m7_operator_go_checklist.md` §B, which directs that
 the GO-1 decision "is saved as its own dated artifact (e.g. `docs/m7_go1_decision_<date>.md`), not
