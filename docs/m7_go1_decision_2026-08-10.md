@@ -118,9 +118,9 @@ Evidence (pointer to completed §A record):
              "at preparation_baseline_commit" at §2, and the envelope §3 GO-1 precondition
              on t3_grounding_reference at §6. Both rulings are dated 2026-08-10.
 
-Authorized by (operator):
+Authorized by (operator): Kevin Brown
 
-Authorized at:
+Authorized at: 2026-08-10 23:47 EDT
 
 Statement: "I have reviewed §A in full, at preparation_baseline_commit, and
             authorize deployment preparation — live submit_captcha_fn wiring,
