@@ -331,7 +331,24 @@ Action                 : none
 
 - **Paused is not frozen.** A longitudinal violation escalates and pauses autonomous posting — but read-only observation continues and explicitly human-authorized sends still pass through every gate. The pause persists across restarts and clears only through explicit human review, which never erases the observation history that produced it.
 
-The policy is in [`moltbook/moltbook.pi`](moltbook/moltbook.pi). Live transport is deliberately unwired — no agent is registered or deployed yet; everything above is enforced and tested against the real resolver.
+The policy is in [`moltbook/moltbook.pi`](moltbook/moltbook.pi). The transport boundary is implemented and the account is registered and claimed, but **nothing has ever been transmitted** — the first governed post is a deliberate authorization decision, not an engineering milestone, and it is gated behind the checklist below.
+
+### The operator GO checklist
+
+Deploying to a live adversarial platform is irreversible in a way that failing a test is not: a published post is visible to other agents the moment it lands, and neither the reconciliation freeze (§9) nor the kill switch (§10) can withdraw it — both act only on *future* outbound writes. [`docs/m7_operator_go_checklist.md`](docs/m7_operator_go_checklist.md) therefore splits authorization in two: **GO-1** authorizes preparation only, and **GO-2** is single-use, bound to one action, one payload hash, and one commit, with an explicit expiry.
+
+Every row carries four fields — Status, Evidence, `Verified by`, `Verified at` — and an item counts as satisfied only when all four are filled. Test output and analysis may serve as *Evidence*; they may never serve as the *verifier*. That is a named, accountable human.
+
+Two kinds of tooling back it, and neither one authorizes anything:
+
+- **[`tools/go-checklist-exercises/`](tools/go-checklist-exercises/)** — where a row says a mechanism was *exercised* and an artifact *produced and reviewed*, a passing test is necessary but is not the thing the row asks for. These scripts produce that artifact and commit the expected transcript alongside, so a reviewer can run `--check` and compare rather than trusting a chat log.
+- **[`tools/verify_go_checklist.py`](tools/verify_go_checklist.py)** — a structural verifier. It does not judge whether evidence is *true*; it asserts every row is in one of three permitted states (`OPEN`, `DRAFTED`, `COMPLETE`) and never signed over blank evidence. A blank row is visibly unfinished; a row signed over empty evidence looks finished, which is why that case is checked mechanically rather than by eye.
+
+```
+python tools/verify_go_checklist.py --require-complete A
+```
+
+§A — preliminary readiness review, the gate for GO-1 — is complete: 13 of 13 rows signed.
 
 ---
 
@@ -393,8 +410,11 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | Rift v0.2 — Rulings 3.1 + 3.2 (semantic declaration matching, known-values accumulation via `RiftSession`) | ✅ Complete — 71/71 Rift tests |
 | M7 — Moltbook governed-agent deployment | 🔄 In progress — ✅ CredentialIntegrity · ✅ LinkRestriction · ✅ IdentityIntegrity v1 · ✅ CadenceIntegrity · ✅ CitationClusterIntegrity (ManipulationFlag was split into these two; §5 thresholds await the grounding amendment) |
 | M7 — Moltbook transport boundary (non-semantic execution adapter) | 🔄 In progress — ✅ approved-action envelope + freshness validation · ✅ retry/reconciliation taxonomy (incl. Implementation Note C's `RATE_LIMITED`) · ✅ kill switch + captcha-suspension protection · ✅ dry-run structural isolation · ✅ claim-status eligibility gate · ✅ `Retry-After`/`X-RateLimit-*` header capture (Implementation Note D — metadata surfaced, never acted on) · ✅ captcha issuance protocol (Implementation Note E — challenge embedded in the write response, verification gates publication not transmission, three independent result statuses, fail-closed config) — account registered/claimed, real endpoints wired; both former engineering blockers closed, first live post is now a go decision with its own governed envelope |
+| M7 — Operator GO checklist, §A Preliminary Readiness Review | ✅ Complete — 13/13 rows signed (longitudinal grounding, engineering completeness, deployment packet read, first-post rehearsal). §A is the gate for GO-1 |
+| M7 — GO-1 deployment preparation authorization | ⬜ Next — its own dated artifact, not a checklist row |
+| M7 — GO-2 single-use transmission authorization + first live post | ⬜ Not started — gated behind GO-1 and §C preparation work |
 
-**590 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), and the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture).
+**611 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
 
 ---
 
@@ -466,7 +486,16 @@ continuum/
 │   ├── test_moltbook_link_restriction.py        # M7 link provenance — 20 tests
 │   ├── test_moltbook_identity_integrity.py      # M7 identity consistency + addendum — 32 tests
 │   ├── test_moltbook_cadence_integrity.py       # M7 cadence store + pause semantics — 25 tests
-│   └── test_moltbook_citation_cluster_integrity.py  # M7 citation graph + grounding gate — 36 tests
+│   ├── test_moltbook_citation_cluster_integrity.py  # M7 citation graph + grounding gate — 36 tests
+│   └── test_go_checklist_verifier.py            # GO checklist structural verifier — 18 tests
+├── tools/
+│   ├── verify_go_checklist.py        # Structural verifier for the operator GO checklist —
+│   │                                 #   asserts every row is OPEN, DRAFTED, or COMPLETE and
+│   │                                 #   never signed over blank evidence
+│   ├── go-checklist-exercises/       # Reproducible exercises backing individual checklist rows
+│   │   ├── a2_dry_run_and_kill_switch.py        # §A2 rows 4–5 — dry run + kill switch
+│   │   └── a4_first_post_rehearsal.py           # §A4 — first-post rehearsal (governed chain)
+│   └── claude-hooks/                 # Canonical sources for the local .claude/ hooks
 ├── quickstart.py                     # One-command demo — validate, resolve, print the trace
 ├── compile_pi.py                     # Helper — validate a .pi file and write its IR to JSON
 ├── log_session.py                    # M5 daily runner — resolves dogfood.pi against current state

@@ -2,6 +2,13 @@
 
 Reproducible exercises backing individual rows of `docs/m7_operator_go_checklist.md`.
 
+> Structural checking of the checklist tables themselves lives one level up, in
+> `tools/verify_go_checklist.py` — it asserts every row is `OPEN`, `DRAFTED`, or
+> `COMPLETE` and never signed over blank evidence. The two are complements: the
+> verifier checks that a row is *well-formed*, these scripts produce what a row
+> claims was *reviewed*. Neither judges whether the evidence is true, and neither
+> authorizes anything.
+
 Some checklist rows are satisfied by the pytest suite alone — the row names an invariant,
 and a test proves it. Others say a mechanism was **exercised** and an artifact **produced
 and reviewed**. For those, a passing test is necessary but is not the thing the row asks
