@@ -1,8 +1,8 @@
 # M7 — C1: Live CAPTCHA Wiring Plan
 
-**Status: DRAFT — awaiting operator signature.** Drafted 2026-08-13 for review. C1's row in
-`docs/m7_operator_go_checklist.md` §C is not satisfied until that row carries an operator
-signature; this document is the artifact that row's `Evidence` will cite, not a substitute for it.
+**Status: LOCKED — signed. C1 is satisfied.** Drafted 2026-08-13; C1's row in
+`docs/m7_operator_go_checklist.md` §C was signed by Kevin Brown at 2026-08-13 18:28 EDT. That row
+is the signature, and this document is the artifact its `Evidence` cites — not a substitute for it.
 
 This is the artifact required by `docs/m7_operator_go_checklist.md` §C item **C1** ("Live CAPTCHA
 wiring plan completed — not required for §A's preliminary review, but required before wiring
@@ -418,13 +418,12 @@ platform's documented contract is correct or complete, that the platform will ho
 the classifications in §3.3 have been empirically validated — §2 states plainly that none of them
 have. It confers no authority over the future contents of any document it cites, and it is not an
 operator signature; the signature that records operator verification lives in C1's row in
-`docs/m7_operator_go_checklist.md` §C.
+`docs/m7_operator_go_checklist.md` §C. That row is the sole signature locus for C1, and this
+document deliberately carries no signature block of its own — a blank block on an operative
+document reads as never-signed, and a second one would create a second authority surface.
 
-C2 may not begin until that row is signed.
+That row was signed at 2026-08-13 18:28 EDT, so C2's ordering precondition under §C and GO-1 §5.2
+is met. Satisfying that precondition is the whole of what this document does for C2; every other
+limit on C2 continues to apply, in particular §8 and §9 below, and GO-1 §5.1 and §5.3.
 
 Nothing has been transmitted. Recording this plan does not change that.
-
----
-
-**Verified by:**
-**Verified at:**
