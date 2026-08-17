@@ -55,7 +55,8 @@ closed by rule 4 because rule 4's condition excludes them.
 
 ## 3. Why this is a citation slip and not an unstated decision
 
-Three features of the plan as signed establish that rows 8 and 9 were intended to be reached:
+Four features of the plan as signed establish that rows 8 and 9 were intended to be reached. The
+first three bear on both rows; the fourth is direct evidence for row 9 only, and is noted as such:
 
 1. **§3.3 assigns them outcomes.** C1-8 and C1-9 each carry a Detection column (HTTP 400 / HTTP
    500), an Outcome column (`AMBIGUOUS` for both), and an evidence-provenance entry. A row that
@@ -69,11 +70,19 @@ Three features of the plan as signed establish that rows 8 and 9 were intended t
 3. **Rule 4's own examples exclude them.** Rule 4 illustrates its scope with "a response such as
    `403` or `503`" — two statuses §3.3 does *not* enumerate. Neither example is an enumerated row,
    which is consistent with rule 4 being aimed at unenumerated statuses only.
+4. **§7's own example list treats C1-9 as reachable.** Setting out why the recording requirement
+   exists, §7 contrasts "a documented-ambiguous response (C1-6, C1-9, C1-10)" with "a response C1
+   never enumerated (C1-R)". C1-9 appears there as a documented-ambiguous condition *distinct from*
+   the residual case — so a section of the plan written after §3.2 already assumes row 9 is
+   recorded as itself rather than folded into C1-R. **That list does not name C1-8**, so this point
+   is direct evidence for row 9 only; row 8's reachability rests on points 1–3 and on its identical
+   structural position in §3.3 (an enumerated non-2xx status with its own detection rule and
+   outcome).
 
 ## 4. The correction
 
-§3.2 rule 1's parenthetical is corrected to cite the enumerated non-2xx rows of §3.3 as a whole
-rather than the sub-range "rows 3–7":
+§3.2 rule 1's parenthetical should read, correcting the citation to the enumerated non-2xx rows of
+§3.3 as a whole rather than the sub-range "rows 3–7":
 
 > **An enumerated non-2xx HTTP status (§3.3 rows 3–9) is authoritative** and classifies the
 > response regardless of body content.
