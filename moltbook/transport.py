@@ -1050,6 +1050,65 @@ class DryRunTransport:
         return tuple(self._trace)
 
 
+# ────────── Instance-free building blocks for the request/auth path ─────────────
+#
+# Both functions below are deliberately module-level and deliberately WITHOUT a
+# leading underscore: unlike this module's private helpers (_collapse_letter_runs,
+# _normalize_captcha_prompt, _word_number_value), they exist precisely to be called
+# from OUTSIDE the class. The live captcha wiring must build `submit_captcha_fn`
+# BEFORE MoltbookHTTPTransport exists — the constructor's Note E fail-closed check
+# requires it as a constructor argument — so it cannot reach a bound method. An
+# underscore here would signal "internal, do not import", which is the opposite of
+# why these were extracted.
+#
+# One HTTP path, not two: the transport's default request_fn and the live captcha
+# submission both build on real_request(), so retry/redirect/timeout posture cannot
+# diverge between the write path and the verify path (C1 §5's concern).
+
+def real_request(
+    base_url: str, method: str, path: str, body: dict | None, headers: dict,
+) -> HTTPResponse:
+    """
+    The default `request_fn` implementation, minus the instance. Extracted verbatim
+    from MoltbookHTTPTransport._real_request — same urllib call, same JSON encoding,
+    same timeout, same HTTPError capture, no behavioural change of any kind.
+
+    NOTE: this is not itself a `request_fn`. The seam's signature is
+    (method, path, json_body, headers) -> HTTPResponse; this takes a leading
+    `base_url`, so callers partially apply it (functools.partial / a lambda).
+
+    Implementation Note D: headers are captured identically on BOTH paths —
+    a 429 arrives via HTTPError, so capturing only on the success path would
+    silently fail on the exact case header capture exists for.
+    """
+    url = f"{base_url}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        url, data=data, headers={**headers, "Content-Type": "application/json"}, method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8")
+            return HTTPResponse(
+                resp.status, (json.loads(raw) if raw else {}), dict(resp.headers),
+            )
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8")
+        return HTTPResponse(
+            exc.code, (json.loads(raw) if raw else {}), dict(exc.headers),
+        )
+
+
+def auth_headers(api_key: str) -> dict:
+    """
+    The single derivation of the Authorization header for this module. Exists so the
+    class method and the live captcha wiring cannot drift into two spellings of
+    `f"Bearer {api_key}"` — the drift that already happened between this module and
+    moltbook/client.py:144 (parked, not fixed here).
+    """
+    return {"Authorization": f"Bearer {api_key}"}
+
+
 # ───────────────── §12 MVP slice: the real Moltbook HTTP transport ──────────────
 
 class MoltbookHTTPTransport:
@@ -1109,28 +1168,17 @@ class MoltbookHTTPTransport:
         return self._live_config_version
 
     def _auth_headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._api_key}"}
+        # Pure delegation — instance-specific behavior does not belong here;
+        # extend auth_headers() instead, so the class and the live captcha wiring
+        # keep deriving the header from one place.
+        return auth_headers(self._api_key)
 
     def _real_request(self, method: str, path: str, body: dict | None, headers: dict) -> HTTPResponse:
-        url = f"{self._base_url}{path}"
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            url, data=data, headers={**headers, "Content-Type": "application/json"}, method=method,
-        )
-        # Implementation Note D: headers are captured identically on BOTH paths —
-        # a 429 arrives via HTTPError, so capturing only on the success path would
-        # silently fail on the exact case header capture exists for.
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                raw = resp.read().decode("utf-8")
-                return HTTPResponse(
-                    resp.status, (json.loads(raw) if raw else {}), dict(resp.headers),
-                )
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8")
-            return HTTPResponse(
-                exc.code, (json.loads(raw) if raw else {}), dict(exc.headers),
-            )
+        # Pure delegation — instance-specific behavior does not belong here;
+        # extend real_request() instead. This wrapper exists only to bind
+        # self._base_url, so that the write path and the live captcha verify path
+        # cannot drift apart in retry/redirect/timeout posture.
+        return real_request(self._base_url, method, path, body, headers)
 
     # ── Safe reads (§8) ──────────────────────────────────────────────────────────
     def health_check(self) -> TransportResult:
