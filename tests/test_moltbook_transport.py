@@ -76,10 +76,12 @@ from moltbook.transport import (
     TransportResult,
     VerificationStatus,
     as_client_transport,
+    auth_headers,
     canonical_payload_hash,
     describe_retry_category,
     make_dry_run_action_id,
     parse_verification_block,
+    real_request,
     reconcile,
     resolve_ambiguous_write,
     solve_captcha_deterministic,
@@ -470,6 +472,49 @@ class TestHeaderCapture:
         assert response.body == {"error": "rate_limited"}
         assert response.rate_limit.retry_after_delay_seconds == 60
         assert response.rate_limit.remaining == 0
+
+    def test_real_request_module_level_needs_no_transport_instance(self, monkeypatch):
+        """C2 request-seam extraction: real_request() is callable with NO transport in
+        existence. This is the whole point of the extraction — the live captcha wiring
+        must build submit_captcha_fn BEFORE MoltbookHTTPTransport is constructed (the
+        Note E fail-closed check takes it as a constructor argument), so it can never
+        reach a bound method.
+
+        The two _real_request tests above would still pass if an instance dependency
+        were reintroduced, because they hold an instance. This one would not — it is
+        the mechanical guard behind the 'pure delegation' comment on the wrapper."""
+        import io
+        import urllib.request as _ur
+
+        class _FakeResp(io.BytesIO):
+            status = 200
+            headers = {"X-RateLimit-Remaining": "7"}
+
+        seen: dict = {}
+
+        def _urlopen(req, timeout):
+            seen["url"] = req.full_url
+            seen["method"] = req.get_method()
+            return _FakeResp(b'{"id": "p9"}')
+
+        monkeypatch.setattr(_ur, "urlopen", _urlopen)
+        response = real_request(
+            "https://example.invalid", "POST", "/posts", {"content": "x"}, {},
+        )
+        assert response.status_code == 200
+        assert response.body == {"id": "p9"}
+        assert response.headers["x-ratelimit-remaining"] == "7"
+        assert seen["url"] == "https://example.invalid/posts"  # base_url joined as before
+        assert seen["method"] == "POST"
+
+    def test_auth_headers_wrapper_matches_module_helper(self):
+        """C2 auth extraction: the class method and the module-level helper derive the
+        same header from one place. transport.py and moltbook/client.py:144 already
+        drifted into two spellings of f"Bearer {api_key}" (parked, not fixed here);
+        this pins the new pair mechanically instead of trusting the comment."""
+        transport = MoltbookHTTPTransport("key", live_config_version=CONFIG_V1)
+        assert transport._auth_headers() == auth_headers("key")
+        assert auth_headers("key") == {"Authorization": "Bearer key"}
 
     def test_missing_retry_after_parses_to_none(self):
         info = HTTPResponse(429, {}, self.RL_HEADERS).rate_limit  # no Retry-After at all
