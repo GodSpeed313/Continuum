@@ -1,6 +1,6 @@
 # Continuum — TODO
 
-Live milestone + debt tracker. Suite: **611 passing + 7 xfail** (known-gap pins).
+Live milestone + debt tracker. Suite: **647 passing + 7 xfail** (known-gap pins).
 
 ## Open items
 
@@ -24,13 +24,15 @@ Live milestone + debt tracker. Suite: **611 passing + 7 xfail** (known-gap pins)
 > defining GO readiness. This tracker records work; it does not define preconditions for GO-1.
 > Where the two appear to disagree, the checklist governs.
 
-### M7 — §C / C2 parked items (surfaced 2026-08-16 during C2 preparation)
+### M7 — §C / C2 parked items (2026-08-16 / 17)
 
-Three items surfaced while extracting the request/auth seam for the live captcha path
-(commit `203c016`). None was acted on in that commit. They are recorded here so each
-deferral is a decision on the record rather than something a later reviewer reconstructs
-from a commit body — deliberately NOT filed under post-GO debt below, because GO-1 is
-already granted and the first item may bear on GO-2.
+Items surfaced during C2 and deliberately not resolved by it. Three came from extracting
+the request/auth seam for the live captcha path (commit `203c016`); the `AMBIGUOUS`
+disposition entry came from the classification-contract pass, where C1 §8 item 7 requires
+it to be carried as an explicit, visible item rather than quietly resolved. Each is
+recorded here so the deferral is a decision on the record rather than something a later
+reviewer reconstructs from a commit body — deliberately NOT filed under post-GO debt
+below, because GO-1 is already granted and two of these may bear on GO-2.
 
 - [ ] **Redirect posture on the live verify path — open, and deliberately not classified as
       post-GO.** `_real_request` / `request_fn` follow redirects via urllib's default opener.
@@ -59,13 +61,31 @@ already granted and the first item may bear on GO-2.
       `client._auth_header()`. Parked by operator direction 2026-08-16. Note this duplication is
       the same drift class the transport-scoped helper exists to prevent, observed one layer up.
 
-- [ ] **Test-count sync deferred to the C2-complete commit.** `CLAUDE.md`, `TODO.md` and
-      `README.md` state a suite count that active C2 work has since moved. Deferred by operator
-      decision 2026-08-16 to be synced **once**, at the C2-complete count, rather than resynced
-      at each intermediate commit — each restatement being another opportunity to record a wrong
-      number. Unlike PR #69's situation, this is an intermediate count inside active work, not a
-      completed state the docs failed to follow. Recorded here so the mismatch reads as a
-      decision rather than as neglect, which is what #69 had to reconstruct.
+- [ ] **The disposition of an `AMBIGUOUS` verification outcome is unresolved — carried
+      here as C1 §8 item 7 requires, not quietly resolved by C2.** C1 §6 records the gap
+      and declines to close it: the outcome is *recorded* (`CaptchaAttemptRecord`, and
+      `send()` reports `PENDING_VERIFICATION` + `REQUIRED`), but **nothing consumes it** —
+      not counted (by design; ambiguity is not evidence), not reconciled, not escalated.
+      Its send-layer counterpart has somewhere to go: `AMBIGUOUS_WRITE` routes to transport
+      spec §9 reconciliation. C2 implemented the classification and preserved the evidence
+      **without** inventing a route, because giving `CaptchaVerifier` reconciliation or
+      escalation responsibilities is an architectural change C1 §1 ruled out of C1's scope
+      and which needs its own ruling. **Consequence stated in C1 §6 and not to be
+      rediscovered later:** since `AMBIGUOUS` never increments the consecutive-confirmed-
+      failure counter, a systematic condition producing only ambiguous outcomes — repeated
+      409s, sustained 429s, a persistent network fault — will never engage
+      `captcha_suspension_risk`, and content accumulates in `PENDING_VERIFICATION` with no
+      automatic signal. That is correct under the counter's own semantics and is exactly
+      why this needs settling **before unattended operation**, though C1 §6 records it as
+      not blocking GO-2, since §E is human-executed and captures all three statuses.
+
+- [x] **Test-count sync deferred to the C2-complete commit — DONE 2026-08-17.** `CLAUDE.md`,
+      `TODO.md` and `README.md` stated a suite count that active C2 work had moved. Deferred by
+      operator decision 2026-08-16 to be synced **once**, at the C2-complete count, rather than
+      resynced at each intermediate commit — each restatement being another opportunity to
+      record a wrong number. Unlike PR #69's situation, that mismatch was an intermediate count
+      inside active work, not a completed state the docs failed to follow. All three synced to
+      **647 passing + 7 xfail** in the C2 classification-contract commit.
 
 ### M7 — post-GO governance milestones (NOT prerequisites for GO-1)
 
