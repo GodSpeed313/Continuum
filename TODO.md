@@ -24,6 +24,49 @@ Live milestone + debt tracker. Suite: **611 passing + 7 xfail** (known-gap pins)
 > defining GO readiness. This tracker records work; it does not define preconditions for GO-1.
 > Where the two appear to disagree, the checklist governs.
 
+### M7 — §C / C2 parked items (surfaced 2026-08-16 during C2 preparation)
+
+Three items surfaced while extracting the request/auth seam for the live captcha path
+(commit `203c016`). None was acted on in that commit. They are recorded here so each
+deferral is a decision on the record rather than something a later reviewer reconstructs
+from a commit body — deliberately NOT filed under post-GO debt below, because GO-1 is
+already granted and the first item may bear on GO-2.
+
+- [ ] **Redirect posture on the live verify path — open, and deliberately not classified as
+      post-GO.** `_real_request` / `request_fn` follow redirects via urllib's default opener.
+      Verified on CPython 3.12.10: on POST it redirects for 301/302/303 only and rebuilds the
+      `Request` WITHOUT `data`, so a captcha answer body is never resubmitted and **C1 §5 is not
+      violated**; 307/308 raise `HTTPError` and fall to C1 §4 residual, which is correct. Two
+      concerns remain. (a) **Classification fidelity:** a followed redirect means the status
+      reaching the classifier may not be `/verify`'s own — a 303 landing on a 404 would classify
+      as C1-4 `CONFIRMED_FAILURE`, a C1 §9 stop condition, from a response `/verify` never gave.
+      C1 §3.2 makes HTTP status authoritative for the enumerated non-2xx rows, so this is
+      load-bearing, not cosmetic. (b) **Credential safety:** `docs/moltbook_api_spec.md` §1
+      documents that a bare-domain request triggers a redirect that STRIPS the `Authorization`
+      header. The transport hardcodes the `www` base URL, so no known path reaches that case
+      today, but it establishes that redirect behaviour here has a credential dimension and not
+      only a classification one. **Whether this must be settled before GO-2 is not decided here.**
+      Parked by operator direction 2026-08-16 during the §10(b) ruling, explicitly to keep the
+      §10(b) work from absorbing an unrelated change to shared request behaviour.
+
+- [ ] **`moltbook/client.py:144` duplicates the Authorization-header derivation, and its comment
+      is stale.** `client.py`'s `_auth_header()` and `transport.py`'s former `_auth_headers()`
+      both spelled `f"Bearer {api_key}"` independently; `client.py:143` still describes itself as
+      "the ONLY place the key is touched", which `transport.py` has made inaccurate. C2's DRY
+      helper (`auth_headers()`) is deliberately **transport-scoped** and does not consolidate the
+      cross-module pair: doing so would reach outside C2's authorized boundary and would ripple
+      into `tests/test_moltbook_credential_integrity.py:196`, which asserts on
+      `client._auth_header()`. Parked by operator direction 2026-08-16. Note this duplication is
+      the same drift class the transport-scoped helper exists to prevent, observed one layer up.
+
+- [ ] **Test-count sync deferred to the C2-complete commit.** `CLAUDE.md`, `TODO.md` and
+      `README.md` state a suite count that active C2 work has since moved. Deferred by operator
+      decision 2026-08-16 to be synced **once**, at the C2-complete count, rather than resynced
+      at each intermediate commit — each restatement being another opportunity to record a wrong
+      number. Unlike PR #69's situation, this is an intermediate count inside active work, not a
+      completed state the docs failed to follow. Recorded here so the mismatch reads as a
+      decision rather than as neglect, which is what #69 had to reconstruct.
+
 ### M7 — post-GO governance milestones (NOT prerequisites for GO-1)
 
 - [ ] **IdentityIntegrity v1.1 — cross-session identity change detection.** Ruled post-GO by
