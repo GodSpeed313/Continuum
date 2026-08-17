@@ -134,7 +134,7 @@ live write, and this erratum leaves that statement exactly as it stands.
 ```
 Status:
 Corrected by (operator): Kevin Brown
-Corrected at: 2026-08-06 00:42 EDT
+Corrected at: 2026-08-17 00:42 EDT
 Statement: "I have reviewed the defect described in §2 and the correction in §4,
             and confirm this erratum corrects the scope of a cross-reference in
             §3.2 rule 1 only. It changes no row's outcome, amends no other
