@@ -1149,11 +1149,17 @@ def live_submit_captcha_fn(
             )
         except (TimeoutError, ConnectionError, OSError, ValueError):
             # C1-10: "timeout, connection failure, TLS failure, or a response that
-            # cannot be read". ValueError covers a body that fails to decode inside
-            # request_fn — at which point the status is already unavailable, so such a
-            # response cannot be routed to §3.2 rule 3 even when it was a 2xx. Both
-            # readings yield AMBIGUOUS; only the provenance differs. Not re-raised:
-            # C1 §4 puts the loudness in the record, not the control flow.
+            # cannot be read". Not re-raised — C1 §4 puts the loudness in the record,
+            # not the control flow.
+            #
+            # PARKED NOTE (2026-08-17, observed not resolved): ValueError also covers a
+            # body that fails to decode inside request_fn. At that point the status is
+            # already unavailable, so a non-JSON response cannot be routed to §3.2
+            # rule 3 even when it was a 2xx — it lands here as C1-10 instead. Both
+            # rows yield AMBIGUOUS, so no outcome differs; only the recorded
+            # provenance does. Left as an observation at the handler rather than
+            # escalated: resolving it would mean changing what request_fn returns,
+            # which is Note D's contract and outside C2.
             return CaptchaSubmitResult(
                 outcome=CaptchaOutcome.AMBIGUOUS,
                 condition_id=CaptchaCondition.C1_10,
