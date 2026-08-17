@@ -132,7 +132,7 @@ live write, and this erratum leaves that statement exactly as it stands.
 ---
 
 ```
-Status:
+Status: LOCKED
 Corrected by (operator): Kevin Brown
 Corrected at: 2026-08-17 00:43 EDT
 Statement: "I have reviewed the defect described in §2 and the correction in §4,
