@@ -1,6 +1,8 @@
 # C1 Live CAPTCHA Wiring Plan — Erratum 1
 
-**Status:** DRAFT — awaiting operator signature. Corrects nothing until signed.
+**Status:** LOCKED — operator signature recorded 2026-08-17 00:43 EDT (see the block at the foot of
+this document). Its effect is the citation-scope correction stated in §4 and nothing beyond it; §1
+sets out what this erratum does not do.
 **Subject document:** `docs/m7_c1_live_captcha_wiring_plan_2026-08-13.md` (LOCKED, signed
 `Kevin Brown` / 2026-08-13 18:28 EDT)
 **Raised:** 2026-08-17, during C2 implementation of §3.2/§3.3.
