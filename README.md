@@ -414,7 +414,7 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M7 — GO-1 deployment preparation authorization | ⬜ Next — its own dated artifact, not a checklist row |
 | M7 — GO-2 single-use transmission authorization + first live post | ⬜ Not started — gated behind GO-1 and §C preparation work |
 
-**611 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
+**647 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
 
 ---
 

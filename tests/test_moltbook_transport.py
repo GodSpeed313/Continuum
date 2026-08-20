@@ -54,8 +54,11 @@ from moltbook.transport import (
     PLATFORM_CAPTCHA_SUSPENSION_LIMIT,
     ActionEnvelope,
     ActionType,
+    CaptchaAttemptRecord,
     CaptchaChallenge,
+    CaptchaCondition,
     CaptchaOutcome,
+    CaptchaSubmitResult,
     CaptchaVerifier,
     DryRunTransport,
     EligibilityBlocked,
@@ -78,7 +81,9 @@ from moltbook.transport import (
     as_client_transport,
     auth_headers,
     canonical_payload_hash,
+    classify_captcha_response,
     describe_retry_category,
+    live_submit_captcha_fn,
     make_dry_run_action_id,
     parse_verification_block,
     real_request,
@@ -902,15 +907,30 @@ def _challenge_write_body(*, expires_in_seconds: int = 300, verification_code: s
 
 
 def _confirmed_success(_verification_code, _answer):
-    return CaptchaOutcome.CONFIRMED_SUCCESS, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"])
+    return CaptchaSubmitResult(
+        outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+        condition_id=CaptchaCondition.C1_1,
+        platform_response=copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"]),
+        status_code=200,
+    )
 
 
 def _confirmed_failure(_verification_code, _answer):
-    return CaptchaOutcome.CONFIRMED_FAILURE, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_failure"])
+    return CaptchaSubmitResult(
+        outcome=CaptchaOutcome.CONFIRMED_FAILURE,
+        condition_id=CaptchaCondition.C1_2,
+        platform_response=copy.deepcopy(CAPTCHA_FIXTURE["verify_response_failure"]),
+        status_code=200,
+    )
 
 
 def _ambiguous(_verification_code, _answer):
-    return CaptchaOutcome.AMBIGUOUS, None
+    # C1-10, not RESIDUAL: this fake returns no platform response at all, which is the
+    # "no response" row, not an unenumerated one.
+    return CaptchaSubmitResult(
+        outcome=CaptchaOutcome.AMBIGUOUS,
+        condition_id=CaptchaCondition.C1_10,
+    )
 
 
 class TestCaptchaSolver:
@@ -1167,7 +1187,12 @@ class TestCaptchaVerifier:
         submitted = {}
         def _capture_submit(verification_code, answer):
             submitted["code"] = verification_code
-            return CaptchaOutcome.CONFIRMED_SUCCESS, {"success": True}
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1,
+                platform_response={"success": True},
+                status_code=200,
+            )
         verifier.verify(env, _challenge("c1"), submit_fn=_capture_submit)
         record = verifier.log[-1]
         assert record.action_id == env.action_id
@@ -1265,7 +1290,12 @@ class TestNoteECaptchaFlow:
             return HTTPResponse(200, _challenge_write_body())
         def _submit(code, answer):
             verify_calls.append((code, answer))
-            return CaptchaOutcome.CONFIRMED_SUCCESS, copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"])
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1,
+                platform_response=copy.deepcopy(CAPTCHA_FIXTURE["verify_response_success"]),
+                status_code=200,
+            )
         transport = _captcha_transport(_submit, request_fn=_request)
         result = transport.send(_envelope())
         assert result.outcome is TransportOutcome.SUCCESS
@@ -1302,7 +1332,10 @@ class TestNoteECaptchaFlow:
         verify_calls = []
         def _submit(code, answer):
             verify_calls.append(code)
-            return CaptchaOutcome.AMBIGUOUS, None
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.AMBIGUOUS,
+                condition_id=CaptchaCondition.C1_10,
+            )
         transport = _captcha_transport(_submit)
         result = transport.send(_envelope())
         assert result.publication_status is PublicationStatus.PENDING_VERIFICATION
@@ -1316,7 +1349,12 @@ class TestNoteECaptchaFlow:
         verify_calls = []
         def _submit(code, answer):
             verify_calls.append(code)
-            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1,
+                platform_response={},
+                status_code=200,
+            )
         transport = _captcha_transport(
             _submit,
             request_fn=lambda m, p, b, h: HTTPResponse(
@@ -1346,7 +1384,12 @@ class TestNoteECaptchaFlow:
         verify_calls = []
         def _submit(code, answer):
             verify_calls.append(code)
-            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1,
+                platform_response={},
+                status_code=200,
+            )
         transport = _captcha_transport(
             _submit,
             request_fn=lambda m, p, b, h: HTTPResponse(
@@ -1378,7 +1421,12 @@ class TestNoteECaptchaFlow:
             return HTTPResponse(200, _challenge_write_body(verification_code=next(codes)))
         def _submit(code, answer):
             submitted.append(code)
-            return CaptchaOutcome.CONFIRMED_SUCCESS, {}
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1,
+                platform_response={},
+                status_code=200,
+            )
         transport = _captcha_transport(_submit, request_fn=_request)
         transport.send(_envelope())
         transport.send(_envelope())
@@ -1427,3 +1475,365 @@ class TestNoteECaptchaFlow:
         outcome = dry.send(_envelope(action_id=make_dry_run_action_id()))
         assert outcome.simulated_publication_status is PublicationStatus.PUBLISHED
         assert outcome.simulated_verification_status is VerificationStatus.NOT_REQUIRED
+
+
+# ────────── C1 §3: the response-condition contract (C2 acceptance criteria) ──────
+#
+# docs/m7_c1_live_captcha_wiring_plan_2026-08-13.md §8 item 9. All fake-driven —
+# no test here makes a live call, and POST /api/v1/verify is never really issued.
+
+
+def _verify_response(status, body=None, headers=None):
+    return HTTPResponse(status, body if body is not None else {}, headers or {})
+
+
+class TestC1ClassificationTable:
+    """One test per §3.3 row, plus the residual row. Deliberate-violation and
+    clean-pass pairs per the repo convention: each confirmed row is paired against a
+    row that must NOT produce the same outcome."""
+
+    def test_c1_1_success_true_is_confirmed_success(self):
+        result = classify_captcha_response(_verify_response(200, {"success": True}))
+        assert result.outcome is CaptchaOutcome.CONFIRMED_SUCCESS
+        assert result.condition_id is CaptchaCondition.C1_1
+
+    def test_c1_2_success_false_is_confirmed_failure(self):
+        """Detected by `success is False`, NOT by matching the human-facing 'error'
+        string — §3.2's closing constraint."""
+        result = classify_captcha_response(
+            _verify_response(200, {"success": False, "error": "Incorrect answer", "hint": "x"})
+        )
+        assert result.outcome is CaptchaOutcome.CONFIRMED_FAILURE
+        assert result.condition_id is CaptchaCondition.C1_2
+
+    def test_c1_2_detected_without_any_error_string(self):
+        """Clean-pass counterpart: the same classification with no error/hint text at
+        all proves those strings are not load-bearing."""
+        result = classify_captcha_response(_verify_response(200, {"success": False}))
+        assert result.condition_id is CaptchaCondition.C1_2
+
+    def test_c1_3_410_is_confirmed_failure(self):
+        result = classify_captcha_response(_verify_response(410))
+        assert result.outcome is CaptchaOutcome.CONFIRMED_FAILURE
+        assert result.condition_id is CaptchaCondition.C1_3
+
+    def test_c1_4_404_is_confirmed_failure(self):
+        result = classify_captcha_response(_verify_response(404))
+        assert result.outcome is CaptchaOutcome.CONFIRMED_FAILURE
+        assert result.condition_id is CaptchaCondition.C1_4
+
+    def test_c1_5_409_is_ambiguous_not_confirmed_failure(self):
+        """C1 §3.4, the row carrying the most reasoning: "code already used" most
+        plausibly means a verification SUCCEEDED, so CONFIRMED_FAILURE would stamp
+        NOT_PUBLISHED on live content and suppress the §C5 correction procedure."""
+        result = classify_captcha_response(_verify_response(409))
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.outcome is not CaptchaOutcome.CONFIRMED_FAILURE
+        assert result.condition_id is CaptchaCondition.C1_5
+
+    def test_c1_6_429_is_ambiguous(self):
+        result = classify_captcha_response(_verify_response(429))
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.condition_id is CaptchaCondition.C1_6
+
+    def test_c1_7_401_is_ambiguous(self):
+        result = classify_captcha_response(_verify_response(401))
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.condition_id is CaptchaCondition.C1_7
+
+    def test_c1_8_400_is_ambiguous(self):
+        result = classify_captcha_response(_verify_response(400))
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.condition_id is CaptchaCondition.C1_8
+
+    def test_c1_9_500_is_ambiguous(self):
+        result = classify_captcha_response(_verify_response(500))
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.condition_id is CaptchaCondition.C1_9
+
+    def test_c1_10_no_response_is_ambiguous(self):
+        """The defining ambiguous case, reached through the live seam when the request
+        raises rather than returning — the submission may or may not have been
+        evaluated."""
+        def _boom(method, path, body, headers):
+            raise TimeoutError("no response")
+
+        result = live_submit_captcha_fn(_boom, "key")("vc-1", "42")
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+        assert result.condition_id is CaptchaCondition.C1_10
+        assert result.platform_response is None
+        assert result.status_code is None
+
+    def test_c1_r_unenumerated_status_is_residual(self):
+        """§3.2 rule 4's own examples: 403 and 503 are non-2xx but unenumerated, so
+        they resolve residually rather than terminating the procedure without a
+        verdict."""
+        for status in (403, 503):
+            result = classify_captcha_response(_verify_response(status))
+            assert result.outcome is CaptchaOutcome.AMBIGUOUS, status
+            assert result.condition_id is CaptchaCondition.RESIDUAL, status
+
+    def test_no_fourth_captcha_outcome_member(self):
+        """§4 item 1 / §7 item 4: the three-status contract is part of what C1
+        settles, and the condition enum must not smuggle a fourth outcome in."""
+        assert [m.value for m in CaptchaOutcome] == [
+            "confirmed_success", "confirmed_failure", "ambiguous",
+        ]
+
+
+class TestC1DetectionPrecedence:
+    """§3.2's ordering, which exists because the 2026-07-21 capture pins envelopes
+    for two cases without their statuses, and statuses for three cases without their
+    bodies."""
+
+    def test_enumerated_status_beats_a_contradicting_body(self):
+        """Rule 1: an enumerated non-2xx is authoritative REGARDLESS of body content.
+        A 410 carrying success:true is still C1-3 — the deliberate-violation case for
+        "C2 must not key classification on the envelope first"."""
+        result = classify_captcha_response(_verify_response(410, {"success": True}))
+        assert result.condition_id is CaptchaCondition.C1_3
+        assert result.outcome is CaptchaOutcome.CONFIRMED_FAILURE
+
+    def test_2xx_envelope_is_authoritative_on_any_2xx_status(self):
+        """Rule 2: the capture does not pin the status accompanying the
+        incorrect-answer envelope, so success governs on ANY 2xx, not just 200."""
+        for status in (200, 202):
+            assert classify_captcha_response(
+                _verify_response(status, {"success": False})
+            ).condition_id is CaptchaCondition.C1_2
+
+    def test_2xx_with_absent_body_is_residual(self):
+        result = classify_captcha_response(_verify_response(200, {}))
+        assert result.condition_id is CaptchaCondition.RESIDUAL
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+
+    def test_2xx_missing_success_field_is_residual(self):
+        result = classify_captcha_response(_verify_response(200, {"status": "ok"}))
+        assert result.condition_id is CaptchaCondition.RESIDUAL
+
+    def test_2xx_non_boolean_success_is_not_coerced(self):
+        """§4 item 2: no coercion, and no inference from partial resemblance. A truthy
+        string is NOT success."""
+        for value in ("true", 1, None, [], {}):
+            result = classify_captcha_response(_verify_response(200, {"success": value}))
+            assert result.condition_id is CaptchaCondition.RESIDUAL, value
+            assert result.outcome is CaptchaOutcome.AMBIGUOUS, value
+
+    def test_residual_and_enumerated_ambiguity_are_distinguishable(self):
+        """§7's whole purpose: a documented-ambiguous outcome confirms the model held;
+        a residual one falsifies it. Same outcome, opposite epistemic weight — they
+        must not flatten into each other."""
+        enumerated = classify_captcha_response(_verify_response(429))
+        residual = classify_captcha_response(_verify_response(503))
+        assert enumerated.outcome is residual.outcome is CaptchaOutcome.AMBIGUOUS
+        assert enumerated.condition_id != residual.condition_id
+
+
+class TestC1NoRetry:
+    """§5: no retry of a CAPTCHA submission at any layer. Proven by counting calls
+    reaching the seam, not by asserting the absence of a loop."""
+
+    @pytest.mark.parametrize("status", [409, 429, 500])
+    def test_exactly_one_request_per_submission(self, status):
+        calls = []
+
+        def _request(method, path, body, headers):
+            calls.append((method, path))
+            return _verify_response(status)
+
+        result = live_submit_captcha_fn(_request, "key")("vc-1", "42")
+        assert len(calls) == 1
+        assert calls[0] == ("POST", "/verify")
+        assert result.outcome is CaptchaOutcome.AMBIGUOUS
+
+    def test_urllib_itself_performs_no_retry_on_a_429(self, monkeypatch):
+        """§8 item 4 wants the client's retry posture EVIDENCED, not assumed. urllib
+        exposes no retry knob, so the evidence is behavioural: exactly one urlopen
+        call reaches the network on the status most likely to tempt a retry."""
+        import io
+        import urllib.error
+        import urllib.request as _ur
+        from email.message import Message
+
+        calls = []
+
+        def _raise(req, timeout):
+            calls.append(req.full_url)
+            raise urllib.error.HTTPError(
+                "https://example.invalid/verify", 429, "Too Many Requests",
+                Message(), io.BytesIO(b'{"error": "rate_limited"}'),
+            )
+
+        monkeypatch.setattr(_ur, "urlopen", _raise)
+        response = real_request(
+            "https://example.invalid", "POST", "/verify", {"answer": "1"}, {},
+        )
+        assert response.status_code == 429
+        assert len(calls) == 1
+
+    def test_no_retry_after_a_lost_response(self):
+        """C1-10 is the row that makes C1-5 ambiguous — a lost response produces a
+        genuine later 409 with zero deliberate retries anywhere."""
+        calls = []
+
+        def _request(method, path, body, headers):
+            calls.append(path)
+            raise ConnectionError("dropped")
+
+        live_submit_captcha_fn(_request, "key")("vc-1", "42")
+        assert len(calls) == 1
+
+    def test_the_submission_carries_the_documented_payload_and_auth(self):
+        seen = {}
+
+        def _request(method, path, body, headers):
+            seen.update(body=body, headers=headers)
+            return _verify_response(200, {"success": True})
+
+        live_submit_captcha_fn(_request, "sekret")("vc-9", "15.00")
+        assert seen["body"] == {"verification_code": "vc-9", "answer": "15.00"}
+        assert seen["headers"] == auth_headers("sekret")
+
+
+class TestC1RecordingRequirement:
+    """§7: the attempt record must identify which condition matched, or that none
+    did — and must not be constructible without it."""
+
+    def test_condition_id_is_mandatory_on_the_record(self):
+        with pytest.raises(TypeError):
+            CaptchaAttemptRecord(
+                action_id="a", approval_trace_id="t", verification_code="v",
+                outcome=CaptchaOutcome.AMBIGUOUS,
+                platform_response=None, timestamp=datetime.now(timezone.utc),
+            )
+
+    def test_condition_id_is_mandatory_on_the_submit_result(self):
+        with pytest.raises(TypeError):
+            CaptchaSubmitResult(outcome=CaptchaOutcome.AMBIGUOUS)
+
+    def test_verify_records_the_condition_it_was_given(self):
+        """verify() is a carrier: the recorded condition is the one the seam
+        classified, never re-derived from the response."""
+        verifier = CaptchaVerifier(KillSwitch())
+        env = _envelope()
+
+        def _residual(_code, _answer):
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.AMBIGUOUS,
+                condition_id=CaptchaCondition.RESIDUAL,
+                platform_response={"weird": True}, status_code=418,
+            )
+
+        verifier.verify(env, _challenge("c1"), submit_fn=_residual)
+        record = verifier.log[-1]
+        assert record.condition_id is CaptchaCondition.RESIDUAL
+        assert record.status_code == 418
+        assert record.platform_response == {"weird": True}
+
+    def test_platform_response_is_not_mixed_with_interpretation(self):
+        """§7 item 3: the response stays a faithful record of what the platform said.
+        The condition id lives in its own field, never injected into the blob."""
+        body = {"success": False, "error": "Incorrect answer"}
+        result = classify_captcha_response(_verify_response(200, dict(body)))
+        assert result.platform_response == body
+        assert "condition" not in result.platform_response
+
+
+class TestC1RateLimitEvidenceBoundary:
+    """C1 §10(b), resolved 2026-08-16 (Reading B): verify-path RateLimitInfo is
+    preserved as EVIDENCE on the attempt record and never leaks into
+    TransportResult.rate_limit, which keeps its Note D write-response meaning."""
+
+    VERIFY_HEADERS = {
+        "X-RateLimit-Limit": "30", "X-RateLimit-Remaining": "0", "Retry-After": "45",
+    }
+    WRITE_HEADERS = {
+        "X-RateLimit-Limit": "100", "X-RateLimit-Remaining": "99",
+    }
+
+    def test_verify_path_rate_limit_reaches_the_classifier(self):
+        """§8 item 5: status, body AND headers must all reach the classifier — a seam
+        surfacing only status and body cannot carry RateLimitInfo for C1-6."""
+        result = classify_captcha_response(_verify_response(429, {}, self.VERIFY_HEADERS))
+        assert result.condition_id is CaptchaCondition.C1_6
+        assert result.rate_limit.retry_after_delay_seconds == 45
+        assert result.rate_limit.remaining == 0
+        assert result.platform_headers["x-ratelimit-limit"] == "30"
+
+    def test_rate_limit_is_preserved_on_the_attempt_record(self):
+        verifier = CaptchaVerifier(KillSwitch())
+
+        def _rate_limited(_code, _answer):
+            return classify_captcha_response(
+                _verify_response(429, {}, self.VERIFY_HEADERS)
+            )
+
+        verifier.verify(_envelope(), _challenge("c1"), submit_fn=_rate_limited)
+        record = verifier.log[-1]
+        assert record.rate_limit.retry_after_delay_seconds == 45
+        assert record.condition_id is CaptchaCondition.C1_6
+
+    def test_transport_result_rate_limit_stays_write_path_only(self):
+        """The boundary proof. The write and the verify responses carry DIFFERENT
+        rate-limit values; TransportResult must report the WRITE's, and the attempt
+        record the VERIFY's. Neither may overwrite the other."""
+        def _write(method, path, body, headers):
+            return HTTPResponse(200, _challenge_write_body(), self.WRITE_HEADERS)
+
+        def _verify_submit(_code, _answer):
+            return classify_captcha_response(
+                _verify_response(429, {}, self.VERIFY_HEADERS)
+            )
+
+        transport = _captcha_transport(_verify_submit, request_fn=_write)
+        result = transport.send(_envelope())
+
+        assert result.rate_limit.limit == 100        # the WRITE response
+        assert result.rate_limit.remaining == 99
+        assert result.rate_limit.retry_after_delay_seconds is None
+
+        record = transport.captcha_verifier.log[-1]
+        assert record.rate_limit.limit == 30         # the VERIFY response
+        assert record.rate_limit.retry_after_delay_seconds == 45
+
+    def test_ambiguous_verification_leaves_content_pending_and_uncounted(self):
+        """§6: AMBIGUOUS is final as a classification and its disposition stays
+        unresolved — recorded, not counted, not retried, not converted."""
+        def _write(method, path, body, headers):
+            return HTTPResponse(200, _challenge_write_body(), self.WRITE_HEADERS)
+
+        def _verify_submit(_code, _answer):
+            return classify_captcha_response(_verify_response(429, {}, self.VERIFY_HEADERS))
+
+        transport = _captcha_transport(_verify_submit, request_fn=_write)
+        result = transport.send(_envelope())
+
+        assert result.publication_status is PublicationStatus.PENDING_VERIFICATION
+        assert result.verification_status is VerificationStatus.REQUIRED
+        assert transport.captcha_verifier.consecutive_confirmed_failures == 0
+        assert transport.kill_switch.engaged is False
+
+    def test_rate_limit_evidence_never_reaches_the_kill_switch(self):
+        """Activation is keyed on outcome alone. Three CONFIRMED_FAILUREs carrying
+        rate-limit headers engage the switch; the audit record carries the platform
+        response but no condition id and no rate-limit data — preserved evidence must
+        not become an escalation input."""
+        kill_switch = KillSwitch()
+        verifier = CaptchaVerifier(kill_switch)
+
+        def _failure(_code, _answer):
+            return classify_captcha_response(
+                _verify_response(200, {"success": False}, self.VERIFY_HEADERS)
+            )
+
+        for i in range(CAPTCHA_LOCAL_FAILURE_THRESHOLD):
+            verifier.verify(_envelope(), _challenge(f"c{i}"), submit_fn=_failure)
+
+        assert kill_switch.engaged is True
+        extra = kill_switch.activation_log[-1].extra
+        assert extra["last_platform_response"] == {"success": False}
+        assert "condition_id" not in extra
+        assert "rate_limit" not in extra
+        # but the evidence IS on the record, where a future authorized rule can read it
+        assert verifier.log[-1].rate_limit.retry_after_delay_seconds == 45
+        assert verifier.log[-1].condition_id is CaptchaCondition.C1_2

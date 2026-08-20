@@ -626,6 +626,61 @@ class CaptchaOutcome(str, Enum):
     AMBIGUOUS = "ambiguous"  # timeout / unclear platform response — never counted
 
 
+class CaptchaCondition(str, Enum):
+    """
+    C1 §3.3 row identity — classification PROVENANCE, not platform content (C1 §7
+    item 3). Recorded so a documented-ambiguous outcome (C1-6/9/10) and a response
+    C1 never enumerated (C1-R) stay distinguishable: those two facts carry opposite
+    epistemic weight — the first confirms the documented model held, the second
+    falsifies it — and §E cannot answer "did the live platform conform to C1's
+    model?" from a record in which they look identical.
+
+    Adds NO fourth CaptchaOutcome member (C1 §4 item 1, §7 item 4). There is
+    deliberately no UNKNOWN member: an unclassifiable response is RESIDUAL, which is
+    a positive classification, not a missing one.
+    """
+    C1_1 = "C1-1"      # 2xx + success:true        -> CONFIRMED_SUCCESS
+    C1_2 = "C1-2"      # 2xx + success:false       -> CONFIRMED_FAILURE
+    C1_3 = "C1-3"      # HTTP 410 expired code     -> CONFIRMED_FAILURE
+    C1_4 = "C1-4"      # HTTP 404 invalid code     -> CONFIRMED_FAILURE  (§9 stop)
+    C1_5 = "C1-5"      # HTTP 409 already used     -> AMBIGUOUS          (C1 §3.4)
+    C1_6 = "C1-6"      # HTTP 429 rate limited     -> AMBIGUOUS
+    C1_7 = "C1-7"      # HTTP 401 unauthenticated  -> AMBIGUOUS          (§9 stop)
+    C1_8 = "C1-8"      # HTTP 400 malformed        -> AMBIGUOUS          (§9 stop)
+    C1_9 = "C1-9"      # HTTP 500 platform error   -> AMBIGUOUS
+    C1_10 = "C1-10"    # no/unreadable response    -> AMBIGUOUS
+    RESIDUAL = "C1-R"  # C1 §4 residual rule       -> AMBIGUOUS
+
+
+@dataclass(frozen=True)
+class CaptchaSubmitResult:
+    """
+    C1 §7 ("On shape"): `submit_captcha_fn`'s return contract. The previous bare
+    `(CaptchaOutcome, dict | None)` two-tuple had nowhere to carry the matched
+    condition or the response headers, so it could satisfy neither §7's recording
+    requirement nor §3.2's two-axis detection. Follows Implementation Note D's
+    precedent — a typed result and a visible shape change, no compatibility adapter.
+
+    `outcome` and `condition_id` are both required: a result that does not identify
+    which §3.3 condition matched is not constructible (§7 item 2).
+
+    `platform_headers` / `rate_limit` are EVIDENCE ONLY. Nothing in this module reads
+    them (C1 §10(b), resolved 2026-08-16: preserve, confer no authority). They are
+    absent for C1-10, where no response exists to have them.
+    """
+    outcome: CaptchaOutcome
+    condition_id: CaptchaCondition
+    platform_response: dict | None = None
+    status_code: int | None = None
+    platform_headers: Mapping[str, str] | None = None
+    rate_limit: RateLimitInfo | None = None
+
+
+# The `submit_captcha_fn` seam: (verification_code, answer) -> CaptchaSubmitResult.
+# Inputs are unchanged from the two-tuple era; only the return shape moved.
+SubmitCaptchaFn = Callable[[str, str], CaptchaSubmitResult]
+
+
 @dataclass(frozen=True)
 class CaptchaChallenge:
     """Implementation Note E: parsed from the `verification` block the platform
@@ -684,15 +739,33 @@ def parse_verification_block(body: dict) -> CaptchaChallenge | None:
 
 @dataclass(frozen=True)
 class CaptchaAttemptRecord:
-    """Binds one verification attempt to its originating action and challenge, per
+    """
+    Binds one verification attempt to its originating action and challenge, per
     Implementation Note B's binding requirement (key renamed to the platform's
-    `verification_code` by Note E)."""
+    `verification_code` by Note E).
+
+    C1 §7: `condition_id` is REQUIRED — a record that does not identify which §3.3
+    condition matched is not constructible. It records classification provenance;
+    `platform_response` stays a faithful record of what the platform said and is
+    never mixed with Continuum's interpretation of it (§7 item 3).
+
+    C1 §10(b), resolved 2026-08-16: the verify response's own header evidence is
+    preserved HERE, deliberately NOT on `TransportResult.rate_limit`, which keeps its
+    Implementation Note D meaning (the WRITE response's rate-limit state). Preserving
+    this evidence confers no authority and removes none — no code in this module has
+    ever read verify-path headers, and none is added. A future already-authorized
+    rule may consume them; C2 is not that rule.
+    """
     action_id: str
     approval_trace_id: str
     verification_code: str
     outcome: CaptchaOutcome
+    condition_id: CaptchaCondition
     platform_response: dict | None
     timestamp: datetime
+    status_code: int | None = None
+    platform_headers: Mapping[str, str] | None = None
+    rate_limit: RateLimitInfo | None = None
 
 
 # ── Implementation Note F: solver vocabulary (closed-form, enumerated) ────────
@@ -911,25 +984,35 @@ class CaptchaVerifier:
         envelope: ActionEnvelope,
         challenge: CaptchaChallenge,
         *,
-        submit_fn: Callable[[str, str], tuple[CaptchaOutcome, Optional[dict]]],
+        submit_fn: SubmitCaptchaFn,
     ) -> CaptchaOutcome:
         """
-        `submit_fn(verification_code, answer) -> (CaptchaOutcome, platform_response)`
-        is the injectable network seam (mirrors MoltbookHTTPTransport's request_fn
-        pattern) — the real network call happens only there; every test supplies a
-        fake. Solves exactly once per call — this method never resubmits the same
-        answer, and never retries an ambiguous outcome on its own.
+        `submit_fn(verification_code, answer) -> CaptchaSubmitResult` is the
+        injectable network seam (mirrors MoltbookHTTPTransport's request_fn pattern)
+        — the real network call happens only there; every test supplies a fake.
+        Solves exactly once per call — this method never resubmits the same answer,
+        and never retries an ambiguous outcome on its own.
+
+        This method is a CARRIER, not a decider: every field of the submission is
+        copied onto the attempt record verbatim and none is re-derived. Classification
+        happened at the seam under C1 §3; re-deriving any part of it here would put a
+        second, drifting interpretation of the same response into the record.
         """
         answer = self._solver(challenge.prompt)
-        outcome, platform_response = submit_fn(challenge.verification_code, answer)
+        submission = submit_fn(challenge.verification_code, answer)
+        outcome = submission.outcome
 
         self._log.append(CaptchaAttemptRecord(
             action_id=envelope.action_id,
             approval_trace_id=envelope.approval_trace_id,
             verification_code=challenge.verification_code,
             outcome=outcome,
-            platform_response=platform_response,
+            condition_id=submission.condition_id,
+            platform_response=submission.platform_response,
             timestamp=datetime.now(timezone.utc),
+            status_code=submission.status_code,
+            platform_headers=submission.platform_headers,
+            rate_limit=submission.rate_limit,
         ))
 
         if outcome is CaptchaOutcome.CONFIRMED_SUCCESS:
@@ -942,10 +1025,148 @@ class CaptchaVerifier:
                     action_id=envelope.action_id,
                     verification_code=challenge.verification_code,
                     confirmed_failure_count=self._consecutive_confirmed_failures,
-                    platform_response=platform_response,
+                    platform_response=submission.platform_response,
                 )
+                # Activation is keyed on `outcome` ALONE. condition_id and rate_limit
+                # are deliberately NOT passed: they are preserved evidence, and letting
+                # evidence drive an escalation is exactly the authority C1 §10(b)'s
+                # resolution withholds. The trigger's signature is closed keyword-only,
+                # so adding them later cannot happen silently.
         # AMBIGUOUS falls through untouched: not counted, not reset, not retried here.
         return outcome
+
+
+# ────────── C1 §3: the response-condition classifier and the live seam ──────────
+#
+# C1 decided what these responses MEAN; everything below carries that decision, and
+# decides nothing. Every classification here traces to a row of C1 §3.3 or to §4's
+# residual rule — no fresh judgement about what a response "probably" means (§8
+# item 3).
+
+CAPTCHA_VERIFY_PATH = "/verify"  # POST {verification_code, answer} — api spec §6
+
+# C1 §3.3's enumerated non-2xx statuses. Each is authoritative BY STATUS ALONE,
+# regardless of body content (§3.2 rule 1).
+#
+# NOTE on the row range: §3.2 rule 1 names "rows 3-7", but §3.3 also enumerates
+# C1-8 (400) and C1-9 (500), which are likewise non-2xx. Rule 4 covers only statuses
+# "not enumerated in §3.3", so on a literal reading 400 and 500 fall through §3.2
+# entirely despite having their own rows. This implementation treats ALL enumerated
+# non-2xx statuses as authoritative, because §8 item 1 requires "every enumerated
+# condition classified as specified" — under the literal reading, rows 8 and 9 would
+# be dead letters that could never be recorded as themselves. Flagged to the operator
+# 2026-08-17; the runtime outcome is identical either way (both readings yield
+# AMBIGUOUS), so only the recorded provenance differs.
+#
+# 503 and 403 are deliberately ABSENT: §3.2 rule 4 names them as examples of the
+# residual case, so only HTTP 500 exactly is C1-9.
+_ENUMERATED_NON_2XX: "dict[int, tuple[CaptchaCondition, CaptchaOutcome]]" = {
+    410: (CaptchaCondition.C1_3, CaptchaOutcome.CONFIRMED_FAILURE),
+    404: (CaptchaCondition.C1_4, CaptchaOutcome.CONFIRMED_FAILURE),
+    409: (CaptchaCondition.C1_5, CaptchaOutcome.AMBIGUOUS),
+    429: (CaptchaCondition.C1_6, CaptchaOutcome.AMBIGUOUS),
+    401: (CaptchaCondition.C1_7, CaptchaOutcome.AMBIGUOUS),
+    400: (CaptchaCondition.C1_8, CaptchaOutcome.AMBIGUOUS),
+    500: (CaptchaCondition.C1_9, CaptchaOutcome.AMBIGUOUS),
+}
+
+
+def classify_captcha_response(response: HTTPResponse) -> CaptchaSubmitResult:
+    """
+    C1 §3.2 detection precedence, applied in that order, then §3.3's mapping, then
+    §4's residual rule. Pure function of one response — no I/O, no state, no retry.
+
+    C1 §3.2's closing constraint is load-bearing: classification is NOT keyed on HTTP
+    status alone, and NEVER on the `error` or `hint` strings, which are human-facing
+    text of unpinned stability. Row C1-2 is detected by `success is False` on a 2xx,
+    not by matching "Incorrect answer".
+    """
+    status = response.status_code
+    evidence = {
+        "platform_response": response.body,
+        "status_code": status,
+        "platform_headers": response.headers,
+        "rate_limit": response.rate_limit,
+    }
+
+    # Rule 1 — an enumerated non-2xx status is authoritative regardless of body.
+    enumerated = _ENUMERATED_NON_2XX.get(status)
+    if enumerated is not None and not (200 <= status < 300):
+        condition, outcome = enumerated
+        return CaptchaSubmitResult(outcome=outcome, condition_id=condition, **evidence)
+
+    # Rules 2 and 3 — on 2xx the envelope's `success` field is authoritative; a body
+    # that is absent, non-JSON, or missing a BOOLEAN `success` is not classifiable.
+    if 200 <= status < 300:
+        success = response.body.get("success") if isinstance(response.body, dict) else None
+        if success is True:
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_SUCCESS,
+                condition_id=CaptchaCondition.C1_1, **evidence,
+            )
+        if success is False:
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.CONFIRMED_FAILURE,
+                condition_id=CaptchaCondition.C1_2, **evidence,
+            )
+        # Falls to §4 below. `success` present but non-boolean is NOT coerced —
+        # §4 item 2 forbids inferring a classification from partial resemblance.
+
+    # Rule 4 / §4 — anything else resolves to AMBIGUOUS, marked residual so it stays
+    # distinguishable from an enumerated ambiguity (§4 item 3, §7). Deliberately not
+    # an exception: raising would make AMBIGUOUS unreachable through the route most
+    # likely to produce it and would contradict the three-status contract (§4).
+    return CaptchaSubmitResult(
+        outcome=CaptchaOutcome.AMBIGUOUS,
+        condition_id=CaptchaCondition.RESIDUAL, **evidence,
+    )
+
+
+def live_submit_captcha_fn(
+    request_fn: "Callable[[str, str, dict | None, dict], HTTPResponse]",
+    api_key: str,
+) -> SubmitCaptchaFn:
+    """
+    Builds the live `submit_captcha_fn` for `POST /api/v1/verify`.
+
+    Takes `(request_fn, api_key)` rather than a transport instance because the Note E
+    fail-closed check requires `submit_captcha_fn` as a CONSTRUCTOR ARGUMENT — it must
+    exist before the transport does, so it cannot reach a bound method. `api_key` is
+    the same plain string the caller already passes to MoltbookHTTPTransport; build a
+    `request_fn` from module-level `real_request` (partially applied with base_url) so
+    both paths share one HTTP posture (C1 §5).
+
+    NO RETRY at any layer (C1 §5): exactly one call to request_fn per invocation, no
+    loop, no backoff, no re-submission on any outcome including 429. `real_request`
+    uses urllib, which performs no retries of its own.
+    """
+    def submit(verification_code: str, answer: str) -> CaptchaSubmitResult:
+        try:
+            response = request_fn(
+                "POST", CAPTCHA_VERIFY_PATH,
+                {"verification_code": verification_code, "answer": answer},
+                auth_headers(api_key),
+            )
+        except (TimeoutError, ConnectionError, OSError, ValueError):
+            # C1-10: "timeout, connection failure, TLS failure, or a response that
+            # cannot be read". Not re-raised — C1 §4 puts the loudness in the record,
+            # not the control flow.
+            #
+            # PARKED NOTE (2026-08-17, observed not resolved): ValueError also covers a
+            # body that fails to decode inside request_fn. At that point the status is
+            # already unavailable, so a non-JSON response cannot be routed to §3.2
+            # rule 3 even when it was a 2xx — it lands here as C1-10 instead. Both
+            # rows yield AMBIGUOUS, so no outcome differs; only the recorded
+            # provenance does. Left as an observation at the handler rather than
+            # escalated: resolving it would mean changing what request_fn returns,
+            # which is Note D's contract and outside C2.
+            return CaptchaSubmitResult(
+                outcome=CaptchaOutcome.AMBIGUOUS,
+                condition_id=CaptchaCondition.C1_10,
+            )
+        return classify_captcha_response(response)
+
+    return submit
 
 
 # ───────────────────── Implementation Note A: eligibility gate ──────────────────
@@ -1136,7 +1357,7 @@ class MoltbookHTTPTransport:
         live_config_version: str = "",
         request_fn: Optional[Callable[[str, str, dict | None, dict], HTTPResponse]] = None,
         captcha_verifier: Optional[CaptchaVerifier] = None,
-        submit_captcha_fn: Optional[Callable[[str, str], tuple[CaptchaOutcome, Optional[dict]]]] = None,
+        submit_captcha_fn: Optional[SubmitCaptchaFn] = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
