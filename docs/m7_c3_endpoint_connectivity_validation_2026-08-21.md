@@ -122,6 +122,14 @@ The credential is read from `MOLTBOOK_API_KEY` in `.env` (gitignored). **No key 
 prefix or suffix of it, is written to this document, to the log, or to any commit.** The script
 records only whether a key was found and its length.
 
+**The script is `tools/c3_connectivity_probe.py`**, committed so that §4 is reproducible by
+someone other than its author rather than merely described. It is the script that produced §5,
+committed as it ran, with one deviation made when it moved into the repo — the log destination,
+which defaults to the system temp directory instead of writing beside the script, so that running
+it does not drop an untracked log into the governed tree. Its own header records that. **It is not
+a test-suite fixture: nothing in `tests/` imports it, and re-running it is a live act that sends
+the real credential to the real platform**, permitted only within §C3's binding wording.
+
 ### 4.1 Pre-flight, offline
 
 Assert the base URL constant matches `https://www.moltbook.com/api/v1` exactly, and that a key is

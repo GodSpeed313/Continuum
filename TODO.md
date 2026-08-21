@@ -87,6 +87,58 @@ below, because GO-1 is already granted and two of these may bear on GO-2.
       inside active work, not a completed state the docs failed to follow. All three synced to
       **647 passing + 7 xfail** in the C2 classification-contract commit.
 
+### M7 — §C / C3 parked items (2026-08-21)
+
+Items surfaced while preparing and running C3, recorded at
+`docs/m7_c3_endpoint_connectivity_validation_2026-08-21.md` §6 and deliberately not resolved by
+it. C3 validated reachability and authentication; neither item below is a C3 failure and neither
+is C3's to fix. Recorded here because until now they were discoverable only inside a signed
+artifact — the same gap Erratum 1 sat in until C2's Evidence closed it. Deliberately NOT filed
+under post-GO debt below: GO-1 is already granted and item 1 bears directly on §D and §E.
+
+- [ ] **The eligibility path discards the HTTP status, so a dead credential and a live unclaimed
+      agent are the same value on the transport's own return.** `check_eligibility()`
+      (`moltbook/transport.py:1418`) reads exactly one field, `response.body.get("status")`, and
+      returns `EligibilityState.PENDING_CLAIM` for everything that is not the literal string
+      `"claimed"` — a `401` error envelope (which has no `status` field at all), a `500`, an empty
+      body. `_status_result()` (`moltbook/transport.py:1414`) then hard-codes
+      `TransportOutcome.SUCCESS` and constructs a `TransportResult` with `platform_headers=None`
+      and `rate_limit=None`, so the status code, the headers, and the rate-limit state of the call
+      are all discarded before any caller can see them. **Consequence:** `EligibilityBlocked`
+      would report "platform eligibility is `pending_claim`" for an authentication failure,
+      sending the operator to the claim lifecycle to diagnose a credential problem. Note also that
+      `EligibilityGate.state` defaults to `CLAIMED` (`moltbook/transport.py:1210`), so a transport
+      that has never called `check_eligibility()` passes `check_write()` — "the gate is configured"
+      and "the gate has been informed by the platform" are different states, and only the second
+      is worth anything at execution time. C3 worked around this by reading the raw status through
+      a pass-through recording `request_fn` (`tools/c3_connectivity_probe.py`); **the transport's
+      behaviour is unchanged and needs its own ruling.** Whether it must be settled before GO-2 is
+      not decided here, but §D requires `KillSwitch.engaged` False and a working eligibility
+      posture, and §E is the first place a mid-run credential failure could occur.
+
+- [ ] **The live rate-limit surface is not the one `docs/moltbook_api_spec.md` §5 describes, and
+      `RateLimitInfo` parses the minority of it.** Observed directly on 2026-08-21 (artifact §5.1),
+      not inferred. `GET /agents/status` returned **twelve** rate-limit headers, not the three §5
+      documents: a tiered family (`x-ratelimit-limit-short` 30 / `-medium` 600 / `-long` 10000,
+      with resets 1 / 60 / 300) alongside the generic `x-ratelimit-limit` / `-remaining` / `-reset`.
+      Three distinct problems follow. (a) **`RateLimitInfo.from_headers`
+      (`moltbook/transport.py:239`) parses only the four generic names and ignores all six tiered
+      headers**, so the tightest observed constraint — `-short: 30` — is invisible to the
+      transport; on the eligibility path even the raw headers are lost (see item 1 above).
+      (b) **The generic limit is per-endpoint, not global:** `x-ratelimit-limit` was **60** on
+      `/agents/status` and **200** on `/posts` in two calls 200ms apart on one credential, so §5's
+      single flat "Read requests (GET) 60 / 60s" does not describe what the platform sends.
+      (c) **One header family carries two value formats:** `x-ratelimit-reset` is an epoch
+      timestamp (`1787339502` = `2026-08-21T19:11:42Z`, exactly 60s after the call — settling the
+      epoch-vs-delta question §5 explicitly left open, for that header only), while the tiered
+      resets are deltas in seconds. Anything treating `reset` uniformly across all eight will be
+      wrong on six. **`docs/moltbook_api_spec.md` is a reference doc, not a governance document,
+      so correcting §5 is not a ruling — but transport spec §8's retry/backoff posture is
+      downstream of it, and Note C's condition (b), a scheduling spec, remains deliberately
+      unmet.** Recorded, not corrected: two endpoints on one credential at one moment is not a
+      sufficient basis for rewriting a documented limit table, and a wider sample should come from
+      normal §E operation rather than from probing for one.
+
 ### M7 — post-GO governance milestones (NOT prerequisites for GO-1)
 
 - [ ] **IdentityIntegrity v1.1 — cross-session identity change detection.** Ruled post-GO by
