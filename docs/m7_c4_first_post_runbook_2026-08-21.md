@@ -228,10 +228,25 @@ completed rehearsal under a `dryrun-` id (§6 above).
    300-second window.
 7. **Call `send()`.** The operator remains present for the duration, kill switch reachable.
 
-   **Steps 6 and 7 execute back-to-back with no intervening human action; the rechecks in steps
-   2–5 therefore remain the "immediately before send" checks required by checklist §E rows 1–2.**
-   Nothing human-paced happens between the last recheck and the transmission itself — only two
-   near-instant function calls.
+   **The rechecks in steps 2–5 remain the "immediately before send" checks required by checklist
+   §E row 1 and by row 2's first clause; row 2's second clause — a reachable
+   `activate_manual(operator=...)` path open *during* the send — is a standing condition
+   discharged by the operator presence step 7 requires, not by step 4.** Steps 6 and 7 make no
+   change to the working tree, and the operator's own act of initiating the send — which §3
+   requires — is not such a change. For the kill switch the guarantee is stronger than an
+   unbroken recheck window: `send()` calls `validate_envelope()`, `kill_switch.check_write()` and
+   `eligibility.check_write()` before any network call (`moltbook/transport.py:1472-1474`), and
+   `check_write()` is by contract the final outbound-boundary enforcement — "called immediately
+   before the actual network write, not just once somewhere upstream"
+   (`moltbook/transport.py:448-450`). Step 3's confirmation is therefore re-enforced in code at
+   the instant of transmission.
+
+   `engaged` is not thereby fixed for the whole of step 7 — the captcha-suspension-risk trigger
+   (`moltbook/transport.py:495`) can engage the switch during verification. Per `send()`'s own
+   contract, verification "gates PUBLICATION, not transmission — the write has already happened
+   by the time it runs" (`moltbook/transport.py:1447-1448`), so it cannot affect the transmission
+   that steps 2–5 gate. The operator's reachable `activate_manual(operator=...)` path — row 2's
+   second clause above — stays open across that window.
 8. **Record the outcome** — `transmission_status` / `publication_status` / `verification_status`,
    RESOLUTION TRACE, `CaptchaAttemptRecord` if verification ran, `consumed_at` on GO-2 (checklist
    §E row 4).
