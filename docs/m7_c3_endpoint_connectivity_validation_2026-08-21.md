@@ -1,10 +1,10 @@
 # M7 — C3: Endpoint Connectivity Validation
 
-**Status: EXECUTED 2026-08-21 — NOT SIGNED.** Drafted and run 2026-08-21. The validation described
+**Status: EXECUTED 2026-08-21 — SIGNED 2026-08-21 15:56 EDT.** Drafted and run 2026-08-21. The validation described
 in §4 was executed once against the live platform on operator authorization; the results are at
-§5 and all four steps passed. **C3's row in `docs/m7_operator_go_checklist.md` §C remains
-unsigned.** That row, once signed, is the attestation; this document is the artifact its
-`Evidence` will cite — not a substitute for it, and not itself an attestation.
+§5 and all four steps passed. **C3's row in `docs/m7_operator_go_checklist.md` §C is signed** —
+`Kevin Brown, 2026-08-21 15:56 EDT`. That row, once signed, is the attestation; this document is
+the artifact that row's `Evidence` cites — not a substitute for it, and not itself an attestation.
 
 **Method was written before results existed.** §4 and the §4.7 prediction were drafted and shown
 to the operator before any request was issued, so §5 records an observation against a stated
