@@ -220,6 +220,16 @@ under post-GO debt below: GO-1 is already granted and item 1 bears directly on �
       auto-warns #pi-logs at ≤14d ~10/07 and ≤3d ~10/18), renewal doc corrected (PR #2
       `ed17351`). If #pi-logs goes quiet anyway: `gh run list -R GodSpeed313/Melody-Maestro`.
 
+- [x] **Commit `a7069a7` message overclaims — logged 2026-08-24, not corrected.** The squashed
+      commit for PR #76, "Finalize first-post runbook with execution steps", touched exactly one
+      file and one line: `docs/m7_operator_go_checklist.md:143`, entering C4's operator signature
+      (`Kevin Brown | 2026-08-24 10:58 EDT`). It did **not** finalize
+      `docs/m7_c4_first_post_runbook_2026-08-21.md`, whose header still read `Status: DRAFT` at
+      that commit, and it added no execution steps — §7's nine-step sequence has been in the
+      runbook since `c36161b` (PR #74). A squashed commit message cannot be amended without
+      rewriting `main`, so this is recorded rather than corrected. The real header flip lands
+      separately, dated to the signature per the obligation the C4 row itself carries.
+
 ### xfail census (7 — deliberate known-gap pins, not failures)
 
 - 3 × CredentialIntegrity encoding exfil (base64 / reversed / split-within-prefix)
