@@ -1,6 +1,6 @@
 # M7 — C4: First-Post Runbook
 
-**Status: DRAFT — pending operator review and sign-off.** This is the artifact required by
+**Status: FINALIZED — signed by Kevin Brown, 2026-08-24 10:58 EDT, citing `docs/m7_operator_go_checklist.md` §C4.** This is the artifact required by
 `docs/m7_operator_go_checklist.md` §C item **C4** ("First-post runbook finalized — step-by-step
 execution script for §E"). It follows the C1/C3 precedent — a standalone dated record rather than
 a row-embedded decision. Once reviewed, C4's row cites this document; this document is not itself
