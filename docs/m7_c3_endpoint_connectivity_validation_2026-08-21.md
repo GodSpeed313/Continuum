@@ -3,8 +3,8 @@
 **Status: EXECUTED 2026-08-21 — SIGNED 2026-08-21 15:56 EDT.** Drafted and run 2026-08-21. The validation described
 in §4 was executed once against the live platform on operator authorization; the results are at
 §5 and all four steps passed. **C3's row in `docs/m7_operator_go_checklist.md` §C is signed** —
-`Kevin Brown, 2026-08-21 15:56 EDT`. This document is the artifact that row's
-`Evidence` cites — not a substitute for it, and not itself an attestation.
+`Kevin Brown, 2026-08-21 15:56 EDT`. That row, once signed, is the attestation; this document is
+the artifact that row's `Evidence` cites — not a substitute for it, and not itself an attestation.
 
 **Method was written before results existed.** §4 and the §4.7 prediction were drafted and shown
 to the operator before any request was issued, so §5 records an observation against a stated
