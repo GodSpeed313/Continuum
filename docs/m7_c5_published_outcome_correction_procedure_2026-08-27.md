@@ -1,6 +1,6 @@
 # M7 — C5: Published-Outcome Correction and Withdrawal Procedure
 
-**Status: DRAFT — pending operator review and sign-off.** This is the artifact required by
+**Status: FINALIZED — signed by Kevin Brown, 2026-08-27 20:50 EDT, citing `docs/m7_operator_go_checklist.md` §C5.** This is the artifact required by
 `docs/m7_operator_go_checklist.md` §C item **C5** ("Published-Outcome Correction and Withdrawal
 Procedure finalized"). It follows the C1/C3/C4 precedent — a standalone dated record rather than a
 row-embedded decision. Once reviewed, C5's row cites this document; this document is not itself
