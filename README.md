@@ -331,7 +331,7 @@ Action                 : none
 
 - **Paused is not frozen.** A longitudinal violation escalates and pauses autonomous posting — but read-only observation continues and explicitly human-authorized sends still pass through every gate. The pause persists across restarts and clears only through explicit human review, which never erases the observation history that produced it.
 
-The policy is in [`moltbook/moltbook.pi`](moltbook/moltbook.pi). The transport boundary is implemented and the account is registered and claimed, but **nothing has ever been transmitted** — the first governed post is a deliberate authorization decision, not an engineering milestone, and it is gated behind the checklist below.
+The policy is in [`moltbook/moltbook.pi`](moltbook/moltbook.pi). The transport boundary is implemented and the account is registered and claimed, and the live endpoints have been read once under §C3's connectivity validation, but **nothing has ever been written** — no governed post, no reply, and `POST /api/v1/verify` has never been called. The first governed post is a deliberate authorization decision, not an engineering milestone, and it is gated behind the checklist below.
 
 ### The operator GO checklist
 
@@ -348,7 +348,17 @@ Two kinds of tooling back it, and neither one authorizes anything:
 python tools/verify_go_checklist.py --require-complete A
 ```
 
-§A — preliminary readiness review, the gate for GO-1 — is complete: 13 of 13 rows signed.
+**Current position.** §A — preliminary readiness review — is complete, 13 of 13 rows signed, and
+**GO-1 was granted** on 2026-08-10 as its own dated artifact
+([`docs/m7_go1_decision_2026-08-10.md`](docs/m7_go1_decision_2026-08-10.md)), authorizing preparation
+and nothing else. §C — the preparation work GO-1 gates — is now complete as well, 5 of 5 rows signed:
+the CAPTCHA wiring plan (C1), the live `submit_captcha_fn` wiring (C2), endpoint connectivity
+validation (C3), the first-post runbook (C4), and the Published-Outcome Correction and Withdrawal
+Procedure (C5). Each of C1, C3, C4 and C5 is a standalone dated artifact whose header is dated to
+its signature rather than to its commit.
+
+**§D — GO-2 — is the next gate, and it is not started.** GO-2 is single-use: one action, one payload
+hash, one commit, one expiry. Nothing above it authorizes a write.
 
 ---
 
@@ -411,8 +421,9 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M7 — Moltbook governed-agent deployment | 🔄 In progress — ✅ CredentialIntegrity · ✅ LinkRestriction · ✅ IdentityIntegrity v1 · ✅ CadenceIntegrity · ✅ CitationClusterIntegrity (ManipulationFlag was split into these two; §5 thresholds await the grounding amendment) |
 | M7 — Moltbook transport boundary (non-semantic execution adapter) | 🔄 In progress — ✅ approved-action envelope + freshness validation · ✅ retry/reconciliation taxonomy (incl. Implementation Note C's `RATE_LIMITED`) · ✅ kill switch + captcha-suspension protection · ✅ dry-run structural isolation · ✅ claim-status eligibility gate · ✅ `Retry-After`/`X-RateLimit-*` header capture (Implementation Note D — metadata surfaced, never acted on) · ✅ captcha issuance protocol (Implementation Note E — challenge embedded in the write response, verification gates publication not transmission, three independent result statuses, fail-closed config) — account registered/claimed, real endpoints wired; both former engineering blockers closed, first live post is now a go decision with its own governed envelope |
 | M7 — Operator GO checklist, §A Preliminary Readiness Review | ✅ Complete — 13/13 rows signed (longitudinal grounding, engineering completeness, deployment packet read, first-post rehearsal). §A is the gate for GO-1 |
-| M7 — GO-1 deployment preparation authorization | ⬜ Next — its own dated artifact, not a checklist row |
-| M7 — GO-2 single-use transmission authorization + first live post | ⬜ Not started — gated behind GO-1 and §C preparation work |
+| M7 — GO-1 deployment preparation authorization | ✅ Granted 2026-08-10 — its own dated artifact, not a checklist row; authorizes preparation only, never transmission |
+| M7 — Operator GO checklist, §C Preparation Work (gated by GO-1, gates GO-2) | ✅ Complete — 5/5 rows signed: C1 CAPTCHA wiring plan · C2 live `submit_captcha_fn` wiring · C3 endpoint connectivity validation · C4 first-post runbook · C5 Published-Outcome Correction and Withdrawal Procedure (delete and edit are deferred out of Phase One by boundary spec §12, so corrective follow-up is the only operative disposition) |
+| M7 — GO-2 single-use transmission authorization + first live post | ⬜ Next — §A, GO-1 and §C are all cleared; GO-2 is bound to one action, one payload hash, one commit, with an explicit expiry |
 
 **647 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
 
