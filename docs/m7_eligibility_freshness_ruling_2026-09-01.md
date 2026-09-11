@@ -1,10 +1,12 @@
 # M7 — Eligibility Gate Freshness Ruling
 
-**Status: DRAFT — pending operator review. Not signed, not accepted, not binding on anything.**
+**Status: SIGNED — accepted with modification by Kevin Brown, 2026-09-11 14:02 EDT** (full
+disposition at the foot of this document). Finding B blocks §D and the invariant at §6 stands as
+written; the modification resolves §8's previously open instrument-classification question:
+enforcing the §6 invariant requires a formal amendment under transport spec §16 before any
+implementation, runbook change, or checklist change is authorized. **This disposition does not
+itself authorize code changes, checklist edits, GO-2 execution, or transmission.**
 Drafted 2026-09-01 against `HEAD` at `12bcf4fd36294cb566ab5c54bed8b7a565640b49`, tree clean.
-**Drafting this document is not acceptance of it, does not close any open item, and does not
-authorize any code change, checklist edit, or transmission.** Everything in this document is a
-proposed finding and a proposed invariant, awaiting the operator's own determination per §8 below.
 
 **Raised by:** `docs/m7_c3_endpoint_connectivity_validation_2026-08-21.md` §6 item 2, in the
 existing signed record — quoted in full at §2 below — which states plainly that the gate is
@@ -363,7 +365,7 @@ as performing, any of them.
 ---
 
 ```
-Status: DRAFT — awaiting operator disposition
+Status: SIGNED — accepted with modification
 Reviewed by (operator): Kevin Brown
 Reviewed at: 2026-09-11 14:02 EDT
 Disposition (select one, to be completed by operator, not by this document):

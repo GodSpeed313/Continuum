@@ -246,8 +246,15 @@ under post-GO debt below: GO-1 is already granted and item 1 bears directly on �
       since nothing currently cross-checks the two. Surfaced during the verification pass
       following the §2 kill-switch-contrast revision.
 
-- [ ] **§16 classification pending for `docs/m7_eligibility_freshness_ruling_2026-09-01.md`'s
-      invariant — open 2026-09-01, operator determination required.** §8 of that document leaves
+- [x] **§16 classification RESOLVED 2026-09-11 — operator determined a formal §16 amendment is
+      required.** Signed disposition, `docs/m7_eligibility_freshness_ruling_2026-09-01.md` foot
+      (Kevin Brown, 2026-09-11 14:02 EDT, accepted with modification): enforcing the §6 freshness
+      invariant affects the transport execution boundary and therefore requires a formal §16
+      amendment before any implementation, runbook change, or checklist change is authorized. The
+      disposition itself authorizes none of those. Below is the open question as originally
+      recorded 2026-09-01, preserved for the record; it is no longer open.
+
+      §8 of that document leaves
       open "whether accepting this ruling's invariant (§6) requires a **formal §16 amendment** to
       the transport spec. §16 requires formal amendment for changes affecting, among others,
       'execution authority,' 'transport responsibilities,' and 'execution boundaries.' A
