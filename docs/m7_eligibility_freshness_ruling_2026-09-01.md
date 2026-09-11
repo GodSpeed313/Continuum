@@ -364,8 +364,8 @@ as performing, any of them.
 
 ```
 Status: DRAFT — awaiting operator disposition
-Reviewed by (operator):
-Reviewed at:
+Reviewed by Kevin Brown
+Reviewed at: 2026-09-11 13:40 EDT
 Disposition (select one, to be completed by operator, not by this document):
   [ ] Accepted as written — Finding B blocks §D; invariant at §6 stands; §8's §16 question
       remains open for a separate determination.
