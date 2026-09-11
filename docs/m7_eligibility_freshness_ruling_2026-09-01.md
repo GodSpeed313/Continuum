@@ -364,13 +364,18 @@ as performing, any of them.
 
 ```
 Status: DRAFT — awaiting operator disposition
-Reviewed by (operator):
-Reviewed at:
+Reviewed by (operator): Kevin Brown
+Reviewed at: 2026-09-11 14:02 EDT
 Disposition (select one, to be completed by operator, not by this document):
   [ ] Accepted as written — Finding B blocks §D; invariant at §6 stands; §8's §16 question
       remains open for a separate determination.
-  [ ] Accepted with modification — operator states the modification.
+  [x] Accepted with modification — operator states the modification.
   [ ] Rejected — operator states the reasoning; Finding B's blocking status reverts to
       undetermined, not to "non-blocking," absent a stated reason.
-Statement:
+Statement:Accepted. Finding B blocks §D and the invariant at §6 stands as written. The modification is
+limited to §8's previously open instrument-classification question: I determine that enforcing
+the §6 freshness invariant affects the transport execution boundary and therefore requires a
+formal amendment under transport spec §16 before any implementation, runbook change, or
+checklist change is authorized. This disposition does not itself authorize code changes,
+checklist edits, GO-2 execution, or transmission.
 ```
