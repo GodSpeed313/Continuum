@@ -230,6 +230,41 @@ under post-GO debt below: GO-1 is already granted and item 1 bears directly on �
       rewriting `main`, so this is recorded rather than corrected. The real header flip lands
       separately, dated to the signature per the obligation the C4 row itself carries.
 
+- [x] **Citation-range coupling in `docs/m7_eligibility_freshness_ruling_2026-09-01.md` — noted
+      2026-09-01, not a defect.** §2's kill-switch-contrast paragraph and the adjacent "C4's own
+      treatment of 'immediately before send'" paragraph in that document (roughly lines 101–112
+      and 128–136) both cite the same source range, `moltbook/transport.py:448-450` (the
+      `KillSwitch.check_write()` docstring quote reused by
+      `docs/m7_c4_first_post_runbook_2026-08-21.md` §7 step 7), to support two distinct,
+      non-contradictory arguments: the first that C4's prose bundles `kill_switch.check_write()`
+      and `eligibility.check_write()` under one unqualified citation without distinguishing them;
+      the second that C4's numbered §7 sequence contains no eligibility-recheck *step* at all, an
+      omission argument independent of the first. **Not itself a defect requiring action** — both
+      arguments hold today and neither depends on the other. Recorded as a **noted coupling
+      risk**: a future edit to either paragraph, or to the cited `transport.py:448-450` range
+      itself, could silently invalidate the other paragraph's grounding without that being caught,
+      since nothing currently cross-checks the two. Surfaced during the verification pass
+      following the §2 kill-switch-contrast revision.
+
+- [ ] **§16 classification pending for `docs/m7_eligibility_freshness_ruling_2026-09-01.md`'s
+      invariant — open 2026-09-01, operator determination required.** §8 of that document leaves
+      open "whether accepting this ruling's invariant (§6) requires a **formal §16 amendment** to
+      the transport spec. §16 requires formal amendment for changes affecting, among others,
+      'execution authority,' 'transport responsibilities,' and 'execution boundaries.' A
+      requirement that `send()` must not proceed without a freshly-obtained platform fact is
+      arguably a new necessary condition on the execution boundary — Note A established what the
+      gate's states *mean*, not what must be true of the gate's *freshness* before it may be
+      trusted, and the invariant at §6 would add exactly that. Equally arguably, it could be
+      implemented as a non-binding clarification the way Note A itself was, if the operator judges
+      it a refinement of an already-locked health-check responsibility (§5/§12) rather than a new
+      category of restriction. **This document does not decide that question.** It is the
+      operator's determination, and it is sequence-relevant: if §16 applies, the spec-track
+      amendment would need to precede any checklist-track change citing it, mirroring how C1 had
+      to settle semantics before C2 could implement them." Quoted directly from the ruling
+      artifact's §8, not paraphrased. See also the citation-range coupling item immediately above
+      — same date, same document (`docs/m7_eligibility_freshness_ruling_2026-09-01.md`) — a
+      separate, independent observation; this entry does not depend on it and does not modify it.
+
 ### xfail census (7 — deliberate known-gap pins, not failures)
 
 - 3 × CredentialIntegrity encoding exfil (base64 / reversed / split-within-prefix)
