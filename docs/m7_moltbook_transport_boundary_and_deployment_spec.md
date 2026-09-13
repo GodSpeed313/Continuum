@@ -730,6 +730,120 @@ requires a formal amendment following the same governance discipline established
 
 ---
 
+# §16 Amendment 1 — Eligibility Freshness Requirement (2026-09-13, Revision 3 — FORMAL, BINDING; adds a ninth responsibility to §5)
+
+**This is a formal, binding §16 amendment — distinct in kind from the non-binding Implementation
+Notes A, B, D, E, and F above, and from Note C's narrower single-category addition to §8. It is
+the formal amendment required by the operator's signed disposition on
+`docs/m7_eligibility_freshness_ruling_2026-09-01.md` (Kevin Brown, 2026-09-11 14:02 EDT):
+"enforcing the §6 freshness invariant affects the transport execution boundary and therefore
+requires a formal amendment under transport spec §16 before any implementation, runbook change,
+or checklist change is authorized." This amendment is that instrument. It is drafted for operator
+review and is NOT locked until signed at the foot of this section.**
+
+**Categories amended, per §16's list:** *transport responsibilities* — this amendment adds the
+ninth responsibility to §5's list above. *Execution boundaries* also applies, per the signed
+ruling's own §8 classification. No other of §16's eight categories is touched.
+
+## 1.1 The invariant
+
+This amendment defines the satisfaction requirements for the ninth transport responsibility added
+to §5 above:
+
+> Before any outbound write executes, the transport must hold an eligibility observation for the
+> account that (a) was obtained by a live read of the platform's claim-status mechanism — not
+> assumed, not defaulted, not inherited; (b) was taken on the exact transport instance that will
+> perform the write; and (c) satisfies an operator-determined freshness relationship to the write
+> attempt. An eligibility value that has never been informed by such a read — including any
+> uninitialized or constructor-default value — does not satisfy this requirement, regardless of
+> how that value came to be set. An observation taken in a prior session, on a different transport
+> instance, or at a different validation step (including the §C3-style connectivity check already
+> on the signed record) does not satisfy it either, regardless of how recently that observation
+> occurred.
+
+This restates the signed ruling's §6 invariant at the specification level.
+
+## 1.2 Satisfaction is an implementation/test verification question, not pre-certified here
+
+This amendment does not invent a universal numeric freshness bound, and does not require one to
+exist before a design can be proposed and evaluated against the invariant stated above.
+
+**A contemporaneous design is a candidate satisfaction mechanism.** Per the signed ruling's own
+§6: "a fresh `check_eligibility()` call made immediately before send would satisfy this invariant
+even with Finding A unresolved." A live, same-instance platform read taken immediately before the
+write it gates may therefore be proposed as satisfying 1.1(c) without first requiring a separate
+numeric-bound amendment — near-zero elapsed time between observation and write falls inside any
+operator-determined freshness relationship, however that relationship is later articulated.
+
+**This amendment does not pre-certify that design, or any other.** Whether a concrete
+implementation actually achieves contemporaneity — same instance, immediately-before-send timing,
+no intervening state mutation — and therefore satisfies 1.1, remains a question for
+implementation and test verification. This amendment states the requirement; it does not decide
+in advance that any particular design meets it.
+
+**A non-contemporaneous design is a separate case.** If a future design instead relies on
+tolerating measurable elapsed time between observation and write (quantified staleness) rather
+than contemporaneity, satisfying 1.1(c) for that design may require an operator-accepted numeric
+bound. This amendment does not decide whether such a design will ever be proposed, what instrument
+would carry that bound, or classify that future instrument now. That determination is deferred to
+whenever, and if, such a design is actually put forward.
+
+## 1.3 What this amendment does not do
+
+- **It does not invent a numeric freshness bound**, universal or otherwise. See 1.2.
+- **It does not require a second formal freshness-bound instrument merely because a
+  contemporaneous design lacks a numeric TTL.** A contemporaneous design may be proposed and
+  evaluated as a candidate satisfaction mechanism under this amendment. Actual implementation and
+  test work remains separately authorized through the repository's normal governance process —
+  this amendment itself authorizes no code or test changes. Only a non-contemporaneous,
+  staleness-tolerant design may need a further operator-accepted numeric bound, and only if and
+  when such a design is actually proposed.
+- **It does not choose a mechanism.** Whether 1.1 is satisfied by a call immediately before send,
+  a changed default, a new C4 step, a new §D precondition, or some other transport-level change is
+  left to implementation, exactly as ruling §6 left it open.
+- **It does not certify or pre-approve any implementation.** Compliance with 1.1 is established by
+  implementation and test evidence, not by this amendment.
+- **It does not alter §7's taxonomy or Implementation Note A's determination** that platform claim
+  state is neither a governance violation nor an operational freeze, and does not make it a
+  kill-switch trigger, an Arbiter event, or a Pi Script constraint concern. That determination
+  stands exactly as written.
+- **It does not alter §4's Approved Action Envelope freshness mechanism** (`approval_expiry`). §4
+  governs whether an *approval to act* is stale; 1.1 governs whether a *platform fact about
+  eligibility* is stale. These are independent freshness concepts and must not be conflated —
+  neither satisfies the other.
+- **It does not touch Finding A** (status/metadata discard on the eligibility read path). That
+  remains a separate, open, non-blocking defect, unsequenced against this amendment.
+- **It does not itself authorize any code, test, runbook (C4), or checklist (§D) change, GO-2
+  execution, or transmission.** Those remain separately gated on this amendment being signed and
+  locked, and on the implementation/test verification described in 1.2.
+
+## 1.4 Grounding
+
+- Invariant: `docs/m7_eligibility_freshness_ruling_2026-09-01.md` §6 (verbatim invariant) and §7
+  (authorization-boundary preservation).
+- Contemporaneous-read candidacy: same document, §6, verbatim: "a fresh `check_eligibility()`
+  call made immediately before send would satisfy this invariant even with Finding A unresolved."
+- No mechanism/bound decided: same document, §6, "Deliberately not decided here."
+- Blocking determination and instrument classification: same document, §5, §8, §9, and its signed
+  foot-of-document disposition, 2026-09-11 14:02 EDT.
+- Preserved taxonomy: this spec, §7 and Implementation Note A.
+- Distinct freshness mechanism not conflated: this spec, §4.
+
+---
+
+Status: DRAFTED — pending operator review and signature. Not locked. No implementation, runbook,
+or checklist change is authorized until the block below is completed.
+
+Reviewed by (operator): ______________________
+Reviewed at: ______________________
+Disposition (select one):
+  [ ] Accepted as written.
+  [ ] Accepted with modification — operator states the modification.
+  [ ] Rejected — operator states the reasoning.
+Statement:
+
+---
+
 # Implementation Note A: Claim-Status Eligibility Gate (2026-07-20, non-binding)
 
 **This is an implementation note, not an amendment. The spec above remains LOCKED as of
@@ -1378,114 +1492,3 @@ ambiguity (F.3.3).
 Verification flow, statuses, kill-switch thresholds, CaptchaVerifier, envelope/governance
 semantics, payload content — all untouched. This note changes one function's recognized input
 shape (`solve_captcha_deterministic`) and nothing about when or why it runs.
-
----
-
-# §16 Amendment 1 — Eligibility Freshness Requirement (2026-09-13, Revision 2 — FORMAL, BINDING; adds a ninth responsibility to §5)
-
-**This is a formal, binding §16 amendment — distinct in kind from the non-binding Implementation
-Notes A, B, D, E, and F above, and from Note C's narrower single-category addition to §8. It is
-the formal amendment required by the operator's signed disposition on
-`docs/m7_eligibility_freshness_ruling_2026-09-01.md` (Kevin Brown, 2026-09-11 14:02 EDT):
-"enforcing the §6 freshness invariant affects the transport execution boundary and therefore
-requires a formal amendment under transport spec §16 before any implementation, runbook change,
-or checklist change is authorized." This amendment is that instrument. It is drafted for operator
-review and is NOT locked until signed at the foot of this section.**
-
-**Categories amended, per §16's list:** *transport responsibilities* — this amendment adds the
-ninth responsibility to §5's list above. *Execution boundaries* also applies, per the signed
-ruling's own §8 classification. No other of §16's eight categories is touched.
-
-## 1.1 The invariant
-
-This amendment defines the satisfaction requirements for the ninth transport responsibility added
-to §5 above:
-
-> Before any outbound write executes, the transport must hold an eligibility observation for the
-> account that (a) was obtained by a live read of the platform's claim-status mechanism — not
-> assumed, not defaulted, not inherited; (b) was taken on the exact transport instance that will
-> perform the write; and (c) satisfies an operator-determined freshness relationship to the write
-> attempt. An eligibility value that has never been informed by such a read — including any
-> uninitialized or constructor-default value — does not satisfy this requirement, regardless of
-> how that value came to be set. An observation taken in a prior session, on a different transport
-> instance, or at a different validation step (including the §C3-style connectivity check already
-> on the signed record) does not satisfy it either, regardless of how recently that observation
-> occurred.
-
-This restates the signed ruling's §6 invariant at the specification level.
-
-## 1.2 Satisfaction is an implementation/test verification question, not pre-certified here
-
-This amendment does not invent a universal numeric freshness bound, and does not require one to
-exist before a design can be proposed or implemented.
-
-**A contemporaneous design is a candidate satisfaction mechanism.** Per the signed ruling's own
-§6: "a fresh `check_eligibility()` call made immediately before send would satisfy this invariant
-even with Finding A unresolved." A live, same-instance platform read taken immediately before the
-write it gates may therefore be proposed as satisfying 1.1(c) without first requiring a separate
-numeric-bound amendment — near-zero elapsed time between observation and write falls inside any
-operator-determined freshness relationship, however that relationship is later articulated.
-
-**This amendment does not pre-certify that design, or any other.** Whether a concrete
-implementation actually achieves contemporaneity — same instance, immediately-before-send timing,
-no intervening state mutation — and therefore satisfies 1.1, remains a question for
-implementation and test verification. This amendment states the requirement; it does not decide
-in advance that any particular design meets it.
-
-**A non-contemporaneous design is a separate case.** If a future design instead relies on
-tolerating measurable elapsed time between observation and write (quantified staleness) rather
-than contemporaneity, satisfying 1.1(c) for that design may require an operator-accepted numeric
-bound. This amendment does not decide whether such a design will ever be proposed, what instrument
-would carry that bound, or classify that future instrument now. That determination is deferred to
-whenever, and if, such a design is actually put forward.
-
-## 1.3 What this amendment does not do
-
-- **It does not invent a numeric freshness bound**, universal or otherwise. See 1.2.
-- **It does not require a further formal amendment as a precondition of every implementation.** A
-  contemporaneous design may proceed to implementation and test verification under this amendment
-  alone; only a non-contemporaneous, staleness-tolerant design may need a further
-  operator-accepted bound, and only if and when such a design is actually proposed.
-- **It does not choose a mechanism.** Whether 1.1 is satisfied by a call immediately before send,
-  a changed default, a new C4 step, a new §D precondition, or some other transport-level change is
-  left to implementation, exactly as ruling §6 left it open.
-- **It does not certify or pre-approve any implementation.** Compliance with 1.1 is established by
-  implementation and test evidence, not by this amendment.
-- **It does not alter §7's taxonomy or Implementation Note A's determination** that platform claim
-  state is neither a governance violation nor an operational freeze, and does not make it a
-  kill-switch trigger, an Arbiter event, or a Pi Script constraint concern. That determination
-  stands exactly as written.
-- **It does not alter §4's Approved Action Envelope freshness mechanism** (`approval_expiry`). §4
-  governs whether an *approval to act* is stale; 1.1 governs whether a *platform fact about
-  eligibility* is stale. These are independent freshness concepts and must not be conflated —
-  neither satisfies the other.
-- **It does not touch Finding A** (status/metadata discard on the eligibility read path). That
-  remains a separate, open, non-blocking defect, unsequenced against this amendment.
-- **It does not itself authorize any code, test, runbook (C4), or checklist (§D) change, GO-2
-  execution, or transmission.** Those remain separately gated on this amendment being signed and
-  locked, and on the implementation/test verification described in 1.2.
-
-## 1.4 Grounding
-
-- Invariant: `docs/m7_eligibility_freshness_ruling_2026-09-01.md` §6 (verbatim invariant) and §7
-  (authorization-boundary preservation).
-- Contemporaneous-read candidacy: same document, §6, verbatim: "a fresh `check_eligibility()`
-  call made immediately before send would satisfy this invariant even with Finding A unresolved."
-- No mechanism/bound decided: same document, §6, "Deliberately not decided here."
-- Blocking determination and instrument classification: same document, §5, §8, §9, and its signed
-  foot-of-document disposition, 2026-09-11 14:02 EDT.
-- Preserved taxonomy: this spec, §7 and Implementation Note A.
-- Distinct freshness mechanism not conflated: this spec, §4.
-
----
-
-Status: DRAFTED — pending operator review and signature. Not locked. No implementation, runbook,
-or checklist change is authorized until the block below is completed.
-
-Reviewed by (operator): ______________________
-Reviewed at: ______________________
-Disposition (select one):
-  [ ] Accepted as written.
-  [ ] Accepted with modification — operator states the modification.
-  [ ] Rejected — operator states the reasoning.
-Statement:
