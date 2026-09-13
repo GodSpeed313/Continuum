@@ -733,7 +733,7 @@ requires a formal amendment following the same governance discipline established
 # §16 Amendment 1 — Eligibility Freshness Requirement (2026-09-13, Revision 3 — FORMAL, BINDING; adds a ninth responsibility to §5)
 
 **This is a formal, binding §16 amendment — distinct in kind from the non-binding Implementation
-Notes A, B, D, E, and F above, and from Note C's narrower single-category addition to §8. It is
+Notes A, B, D, E, and F, and from Note C's narrower single-category addition to §8. It is
 the formal amendment required by the operator's signed disposition on
 `docs/m7_eligibility_freshness_ruling_2026-09-01.md` (Kevin Brown, 2026-09-11 14:02 EDT):
 "enforcing the §6 freshness invariant affects the transport execution boundary and therefore
