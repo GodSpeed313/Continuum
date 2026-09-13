@@ -738,8 +738,8 @@ the formal amendment required by the operator's signed disposition on
 `docs/m7_eligibility_freshness_ruling_2026-09-01.md` (Kevin Brown, 2026-09-11 14:02 EDT):
 "enforcing the §6 freshness invariant affects the transport execution boundary and therefore
 requires a formal amendment under transport spec §16 before any implementation, runbook change,
-or checklist change is authorized." This amendment is that instrument. It is drafted for operator
-review and is NOT locked until signed at the foot of this section.**
+or checklist change is authorized." This amendment is that instrument. It was signed and
+locked by the operator at the foot of this section, 2026-09-13 19:12 EDT.**
 
 **Categories amended, per §16's list:** *transport responsibilities* — this amendment adds the
 ninth responsibility to §5's list above. *Execution boundaries* also applies, per the signed
@@ -831,8 +831,7 @@ whenever, and if, such a design is actually put forward.
 
 ---
 
-Status: DRAFTED — pending operator review and signature. Not locked. No implementation, runbook,
-or checklist change is authorized until the block below is completed.
+Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-09-13 19:12 EDT.
 
 Reviewed by (operator): Kevin Brown
 Reviewed at: 2026-09-13 19:12 EDT
