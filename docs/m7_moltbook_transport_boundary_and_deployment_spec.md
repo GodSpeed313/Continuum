@@ -834,13 +834,14 @@ whenever, and if, such a design is actually put forward.
 Status: DRAFTED — pending operator review and signature. Not locked. No implementation, runbook,
 or checklist change is authorized until the block below is completed.
 
-Reviewed by (operator): ______________________
-Reviewed at: ______________________
+Reviewed by (operator): Kevin Brown
+Reviewed at: 2026-09-13 19:12 EDT
 Disposition (select one):
-  [ ] Accepted as written.
+  [x] Accepted as written.
   [ ] Accepted with modification — operator states the modification.
   [ ] Rejected — operator states the reasoning.
-Statement:
+Statement: I accept §16 Amendment 1 — Eligibility Freshness Requirement as written. I accept the eligibility-freshness invariant, the addition of the ninth transport responsibility to §5, and the execution-boundary requirements stated in this amendment. This acceptance does not authorize implementation, test, runbook, checklist, GO-2, or transmission activity; those remain subject to their separate governance and authorization requirements.
+
 
 ---
 
