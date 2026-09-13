@@ -1376,3 +1376,96 @@ ambiguity (F.3.3).
 Verification flow, statuses, kill-switch thresholds, CaptchaVerifier, envelope/governance
 semantics, payload content — all untouched. This note changes one function's recognized input
 shape (`solve_captcha_deterministic`) and nothing about when or why it runs.
+
+---
+
+# Implementation Note G: Eligibility Freshness Requirement (2026-09-13 — FORMAL §16 AMENDMENT, binding; extends §5)
+
+**Status of this note is different from A, B, D, and E, and heavier than C: this is a formal §16
+amendment, not a non-binding implementation note, per the operator's signed disposition on
+`docs/m7_eligibility_freshness_ruling_2026-09-01.md` (Kevin Brown, 2026-09-11 14:02 EDT):
+"enforcing the §6 freshness invariant affects the transport execution boundary and therefore
+requires a formal amendment under transport spec §16 before any implementation, runbook change,
+or checklist change is authorized." This note is that amendment. It is drafted for operator
+review and is NOT locked until signed at the foot of this section.**
+
+**Categories amended, per §16's list:** *execution boundaries* (the category the signed ruling
+itself names) and *transport responsibilities* (this note adds a row to §5's list). No other of
+§16's eight categories — execution authority, retry behavior, reconciliation ownership, approval
+validation, kill-switch triggers, Dry Run isolation — is touched.
+
+## G.1 The invariant (extends §5, Transport Responsibilities)
+
+Add to §5's list of transport responsibilities:
+
+> **Fresh eligibility observation before write.** Before any outbound write executes, the
+> transport must hold an eligibility observation for the account that (a) was obtained by a live
+> read of the platform's claim-status mechanism — not assumed, not defaulted, not inherited; (b)
+> was taken on the exact transport instance that will perform the write; and (c) is no older, at
+> the moment of the write attempt, than an operator-fixed freshness bound. An eligibility value
+> that has never been informed by such a read — including any uninitialized or constructor-default
+> value — does not satisfy this responsibility, regardless of how that value came to be set. An
+> observation taken in a prior session, on a different transport instance, or at a different
+> validation step (including the §C3-style connectivity check already on the signed record) does
+> not satisfy it either, regardless of how recently that observation occurred.
+
+This restates ruling §6's invariant at the specification level. It is deliberately silent on
+mechanism — see G.3.
+
+## G.2 Defined but not yet enforceable — no invented freshness bound
+
+Following the identical discipline established at §14.1 and §14.2: this responsibility is defined
+by this amendment but **inactive as an enforceable gate** until its freshness bound is fixed.
+
+No implementation may invent, infer, estimate, or hard-code a value for the freshness bound named
+in G.1(c). Fixing that value is not performed by this amendment.
+
+Until the freshness bound is fixed by a further instrument, this responsibility cannot be
+implemented, and no write path can be brought into compliance with it. This is the operative
+reason Finding B continues to block §D: the absence of a compliant fresh-observation path is not
+a gap in this amendment's coverage, it is this amendment correctly describing a requirement that
+nothing in the corpus yet satisfies.
+
+## G.3 What this amendment does not do
+
+- **It does not choose a mechanism.** Whether G.1 is satisfied by a live call immediately before
+  send, a changed default, a new C4 runbook step, a new §D precondition, or a transport-level
+  check inside `send()` itself is left open, exactly as ruling §6 left it. Choosing among these is
+  a separate, later decision.
+- **It does not fix the freshness bound.** See G.2.
+- **It does not alter §7's taxonomy or Implementation Note A's determination** that platform
+  claim state is neither a governance violation nor an operational freeze, and does not graduate
+  it into a kill-switch trigger. That determination stands exactly as written.
+- **It does not alter §4's Approved Action Envelope freshness mechanism** (`approval_expiry`). §4
+  governs whether an *approval to act* is stale; G.1 governs whether a *platform fact about
+  eligibility* is stale. These are independent freshness concepts and must not be conflated —
+  neither satisfies the other.
+- **It does not touch Finding A** (status/metadata discard on the eligibility read path). That
+  remains a separate, open, non-blocking defect, unsequenced against this amendment.
+- **It does not itself authorize any code, test, runbook (C4), or checklist (§D) change.** Those
+  remain gated on both (1) this amendment being signed and locked, and (2) a further step that
+  fixes the freshness bound and selects a mechanism.
+
+## G.4 Grounding
+
+- Invariant: `docs/m7_eligibility_freshness_ruling_2026-09-01.md` §6 (verbatim invariant) and §7
+  (authorization-boundary preservation).
+- Blocking determination and instrument classification: same document, §5 and §9, and its signed
+  foot-of-document disposition, 2026-09-11 14:02 EDT.
+- Dormancy pattern (defined, no invented number, enforcement gated on a future amendment): this
+  spec, §14.1–§14.3.
+- Preserved taxonomy: this spec, §7 and Implementation Note A.
+- Distinct freshness mechanism not conflated: this spec, §4.
+
+---
+
+Status: DRAFTED — pending operator review and signature. Not locked. No implementation, runbook,
+or checklist change is authorized until the block below is completed.
+
+Reviewed by (operator): ______________________
+Reviewed at: ______________________
+Disposition (select one):
+  [ ] Accepted as written.
+  [ ] Accepted with modification — operator states the modification.
+  [ ] Rejected — operator states the reasoning.
+Statement:
