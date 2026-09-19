@@ -161,6 +161,9 @@ explicit sandbox or validation mechanism (none is currently known).
 
 **GO-2 is single-use.** It authorizes exactly one transmission, bound to one exact combination of
 code, payload, and configuration — not a standing permission that stays open across later changes.
+Transmission authority under GO-2 is consumed once a transmission **attempt** begins, not when its
+outcome is later resolved — see §D.5 below for the exact attempt boundary, the required
+pre-transmission gate, and the full consumption rule.
 
 ```
 execution_candidate_commit:      <git sha actually executing the send — distinct from
@@ -176,8 +179,21 @@ authorized_payload_hash:
 authorized_execution_commit:
 authorized_config_version:
 authorization_expires_at:
-consumed_at:                     <filled only after §E executes, or left blank + voided if
-                                   authorization_expires_at passes unused>
+consumed_at:                     <records the timestamp of the §D.5 transmission-attempt boundary
+                                   crossing — not that any outcome was resolved. No code writes
+                                   this field; it is populated manually by the operator, either
+                                   immediately after send() returns once the boundary crossing is
+                                   known, or during reconciliation/evidence review if the session
+                                   ended before the field could be populated. An unresolved
+                                   OUTCOME_UNKNOWN / AMBIGUOUS_WRITE still receives this timestamp
+                                   once known; reconciliation's later result never clears or
+                                   rewrites it. Left blank + voided only where the boundary was
+                                   never crossed, including expiry-unused cases. A blank value here
+                                   does NOT by itself prove no attempt occurred — the session may
+                                   have ended before the operator could populate it. §D.5's
+                                   attempt-record protocol (AVAILABLE / FROZEN / CONSUMED) is the
+                                   operative single-use evidence; this field is a record of that
+                                   protocol's conclusion, not a substitute for it>
 ```
 
 Requires:
@@ -208,6 +224,344 @@ Saved as its own dated artifact (e.g. `docs/m7_go2_decision_<date>.md`). This se
 intentionally manual — mirrors §10's kill-switch re-enablement rule (only the operator restarts
 execution) applied in reverse: only the operator starts it. No automated check or CI green state
 may substitute for this record.
+
+---
+
+## D.5 — Final Pre-Transmission Single-Use Gate
+
+**This gate is not a one-time phase transition.** It is entered fresh, from the beginning,
+immediately before **every** proposed transmission attempt made under a GO-2 record — including a
+second proposed attempt after an earlier one stopped here without reaching the transmission-attempt
+boundary defined below. A prior PASS of this gate confers no standing authorization and may not be
+relied on by a later proposed attempt; every proposed attempt performs the full sequence again from
+step 1.
+
+**The transmission-attempt boundary** is the invocation of `self._request_fn(...)` inside
+`moltbook.transport.MoltbookHTTPTransport.send()` — the `try:` block opening at
+`moltbook/transport.py:1491` and the call itself at `moltbook/transport.py:1492` (freshly verified;
+unchanged from the prior draft of this section) — the sole point where the transport reaches the
+external platform. Everything before that line is local governance computation with no external
+effect (envelope freshness validation, kill-switch check, eligibility check, path/body
+construction). The instant execution reaches that call — whatever it subsequently returns, raises,
+or times out as — a transmission attempt has begun and cannot be un-begun.
+
+Live execution of this gate and the send that follows it is governed operationally by
+`docs/m7_c4_first_post_runbook_2026-08-21.md` **as superseded for live execution by
+`docs/m7_c4_runbook_amendment_1_2026-09-18.md`** — the original C4 remains historically signed and
+unchanged; the amendment carries the operative sequence. A bare reference to "C4" or "runbook §7"
+below means C4 as amended, unless the original's untouched sections (§1–§4, §6, §8–§10) are meant,
+in which case the original is cited directly since the amendment does not touch them.
+
+### Three-state transmission-authority model
+
+Writing a pre-attempt marker does **not by itself** prove the external boundary was crossed. Its
+purpose is to establish durable evidence *before* the uncertain network call, precisely because the
+network call's own outcome cannot always be trusted to arrive. Conflating "a marker exists" with
+"the boundary was crossed" would either wrongly free authority that was actually consumed, or
+wrongly retire authority that was never touched. Three states, not two, are required:
+
+**AVAILABLE.** GO-2 has not been consumed and is presently eligible to enter or re-enter the gate
+below, provided every other GO-2 condition (signed, unexpired, unchanged code/config/payload/
+action/credentials) is separately satisfied. For a GO-2's first use, AVAILABLE ordinarily means no
+attempt record exists yet for its `action_id`. AVAILABLE does **not** mean the gate has already
+been passed — every proposed attempt re-enters the complete gate from its beginning regardless of
+this state. A previously FROZEN GO-2 may return to AVAILABLE only through the recovery disposition
+below; there is no other path back to AVAILABLE once a record exists.
+
+**FROZEN.** GO-2 may not authorize a transmission while the status of the external-attempt boundary
+is *unresolved* for its `action_id`. This includes: an `ATTEMPT_IN_PROGRESS` marker exists and
+subsequent execution state is uncertain; a process or session failure after marker creation leaves
+it unknown whether `_request_fn(...)` was invoked; available evidence is incomplete or
+contradictory; or the operator cannot positively establish that execution terminated before the
+boundary. **FROZEN is fail-closed. It is neither proof of consumption nor permission to retry.**
+
+**CONSUMED.** The external transmission-attempt boundary is *known* to have been crossed for this
+`action_id`. GO-2 is permanently unavailable for another transmission. There is no CONSUMED →
+AVAILABLE transition under any circumstance, including any reconciliation result. A fresh GO-2 is
+required for any later transmission attempt, regardless of that later attempt's relationship to
+this one.
+
+**Operative rule, replacing the earlier "any existing record permanently STOPs this GO-2"
+formulation:**
+- no prior record for this `action_id` → potentially AVAILABLE for first gate entry;
+- a record in an unresolved/FROZEN state → STOP, remain FROZEN;
+- a record showing the boundary was crossed → CONSUMED, permanent STOP, no exceptions;
+- a record containing a **valid, evidence-backed** FROZEN→AVAILABLE recovery disposition (below) →
+  potentially AVAILABLE for a full, fresh gate re-entry;
+- anything else, including any ambiguity about which of the above applies → STOP.
+
+No automatic inference of AVAILABLE is permitted from anything other than the two cases named
+above (no prior record, or a valid recorded recovery disposition).
+
+### Gate sequence — construct, verify, then mark
+
+The earlier draft of this gate wrote the pre-attempt marker using GO-2's own paper values *before*
+any `ActionEnvelope` object existed, binding the marker to intended values rather than to the
+actual object about to be sent — this is corrected below. `action_id` is the specific field this
+matters for: `payload_hash` and `governance_config_version` are independently checked by
+`validate_envelope()` inside `send()` itself, or fail loudly at construction if omitted, but
+`action_id` has no such backstop (C4 §4, unchanged): `ActionEnvelope.approve()` silently generates
+a fresh `uuid.uuid4()` if `action_id` is omitted, and every other check in `validate_envelope()`
+still passes against the wrong value. A marker written before construction cannot catch exactly
+this failure; a marker written from the real, constructed object's fields can.
+
+Performed in full, in order, immediately before every proposed transmission attempt:
+
+1. Confirm GO-2 exists and is signed.
+2. Confirm GO-2 has not expired.
+3. Confirm code, configuration, payload, action, and credentials remain within the exact
+   authorization (envelope doc §3's existing invalidation rule — referenced here, not restated).
+4. Inspect the procedural attempt-record location (below) for this GO-2's `authorized_action_id`.
+   Apply the operative rule above: STOP unless the state is "no prior record" or "a valid recovery
+   disposition restores AVAILABLE."
+5. Confirm no known unresolved `OUTCOME_UNKNOWN` / `AMBIGUOUS_WRITE` exists for this action, per
+   transport spec §9's existing authority that such a state is never retried and is always
+   escalated to reconciliation. **This is a best-effort review against available records, not a
+   verified technical guarantee.**
+6. Perform, or confirm already performed, the existing immediate-pre-send clean-tree check
+   (checklist §E row 1) and kill-switch check (checklist §E row 2). This gate cross-references
+   those controls; it does not restate or duplicate their authority. A clean tracked tree is an
+   independent fact from "no previous attempt exists" — the attempt record lives outside the
+   tracked tree precisely so the two are never conflated (see the Location note below).
+7. **Construct and approve the actual `ActionEnvelope`**, passing `action_id=authorized_action_id`
+   explicitly (C4 §4; do not let it default).
+8. **Verify the actual constructed envelope's `action_id` and `payload_hash` against GO-2's
+   `authorized_action_id` and `authorized_payload_hash`** — against the real object, not against
+   intent. STOP if they do not match exactly; do not proceed to step 9 on a mismatch.
+9. Atomically write the attempt record as `ATTEMPT_IN_PROGRESS`, populated from the **actual
+   verified envelope's fields** (not from GO-2's paper values alone), with `transmission_attempt_at`
+   left null (below).
+10. Re-read the just-written record and verify its identity/binding fields match exactly what was
+    written and what the actual envelope carries.
+11. Proceed directly to `send()` (C4 §7 as amended) with no substitution of envelope, payload,
+    action, configuration, credentials, or execution candidate between step 9's write and the call.
+    Transport performs its own existing internal validation, kill-switch, and eligibility checks
+    before `_request_fn(...)`.
+12. If `_request_fn(...)` is invoked: the boundary is crossed, GO-2 transitions to CONSUMED, and the
+    actual boundary-crossing timestamp is recorded once known (see `consumed_at`, §D above, and
+    `transmission_attempt_at`, below).
+
+**If steps 1–6 fail, this is a STOP and GO-2 remains AVAILABLE** (or FROZEN, if step 4 found an
+unresolved record) — nothing has been constructed or written yet. **If step 7 or 8 fails, no marker
+has been written; GO-2 remains AVAILABLE**, subject to the same re-entry conditions. **Once step 9's
+write completes, GO-2 is FROZEN until either the boundary status resolves (step 11–12) or a
+recovery disposition is recorded (below).**
+
+### Pre-boundary failure handling
+
+- **Failure before marker creation** (steps 1–8): no marker exists, no boundary crossed, GO-2 is
+  **not** consumed by this failure. If the blocking condition is corrected and every other
+  condition still holds, the operator may re-enter the complete gate from step 1.
+- **Failure writing the marker itself** (step 9): treat as STOP. The atomic-write pattern
+  (`tmp` file + `os.replace`) means either the complete new record exists at the destination path
+  or the destination is unchanged from before the write was attempted — there is no partially
+  written destination state to reason about. If the destination does not show the complete new
+  record after the attempt, no marker was established; treat this identically to "failure before
+  marker creation." If record state cannot be determined with confidence, do not proceed — fail
+  closed and re-verify before any further action.
+- **Failure after marker creation but before boundary status is established** (i.e., anywhere in
+  steps 9–11 through `_request_fn(...)` itself not yet reached, or its outcome not yet knowable):
+  **transition to FROZEN.** Do not retry transmission. Do not mint a new `action_id`. Apply the
+  FROZEN → AVAILABLE recovery protocol below only if affirmative evidence can positively establish
+  pre-boundary termination; otherwise remain FROZEN indefinitely.
+- **Boundary crossed** (`_request_fn(...)` invoked): **CONSUMED, permanently.** No recovery to
+  AVAILABLE exists for this case, regardless of what is subsequently learned about the outcome.
+
+### FROZEN → AVAILABLE recovery
+
+This is a narrow, evidence-gated exception, not a routine unfreezing procedure. **A FROZEN GO-2 may
+return to AVAILABLE only if affirmative, contemporaneous evidence positively establishes that
+execution terminated before `_request_fn(...)` was invoked.** The operator's recollection alone is
+never sufficient.
+
+**Qualifying evidence** must positively establish the relevant control-flow fact, not merely be
+machine-generated. Examples, not an exhaustive or implementation-specific list:
+- a captured traceback or exception whose control path establishes termination before
+  `_request_fn(...)` (e.g., an exception raised by `validate_envelope()`, `kill_switch.check_write()`,
+  or `eligibility.check_write()` — all of which execute, and can only raise, before the boundary);
+- contemporaneous transport/runtime output identifying the last control point reached as
+  pre-boundary;
+- other contemporaneous, machine-generated evidence that positively establishes `_request_fn(...)`
+  was not invoked, evaluated on its actual content, not merely its source.
+
+**Non-qualifying evidence, explicitly insufficient by itself:** operator memory/recollection; a
+blank `consumed_at`; a null `transmission_attempt_at`; absence of a platform post; absence of a
+success response; lack of any platform-side record; a record remaining in `ATTEMPT_IN_PROGRESS`;
+elapsed time; or a later belief that the request probably did not leave the machine. **If positive
+proof is unavailable, the record remains FROZEN — indefinitely, if necessary.**
+
+**Explicit operator recovery disposition required** — recovery never happens automatically, and no
+code in this design infers it. The disposition must record, at minimum:
+- the affected `action_id` and GO-2 reference;
+- previous state (`FROZEN`) and resulting state (`AVAILABLE`);
+- the exact reason the record entered FROZEN;
+- a reference to the qualifying evidence;
+- a concise statement of what that evidence proves;
+- an explicit statement that the evidence establishes `_request_fn(...)` was not invoked;
+- operator identity and disposition timestamp;
+- a statement that recovery restores only eligibility to re-enter the gate at step 1, and does
+  **not** revive any prior gate PASS, prior envelope object, prior clean-tree result, or prior
+  kill-switch result — the gate is re-run in full, including expiry, and including
+  code/config/payload/credential checks, as if this were a first attempt under this GO-2.
+  **The `authorized_action_id` itself is not discarded or replaced — it is GO-2's own fixed
+  identity binding and never changes.** What does not survive recovery is any previously
+  *constructed* `ActionEnvelope` object or its approval — the gate's construct-verify-mark
+  sequence builds a fresh envelope object using the same `action_id=authorized_action_id` argument
+  it always uses, and re-verifies that fresh object against GO-2's bindings exactly as on a first
+  attempt.
+
+**Durable recovery history — one record per GO-2/`action_id`, an append-only event history within
+it, nothing ever deleted.** There is exactly one attempt-record file per `authorized_action_id`
+(matching the "one record file per `action_id`" location rule below) — recovery does not create a
+second file, a second identity, or a "fresh" pairing of any kind, because the GO-2/`action_id`
+identity this record is keyed to never changes. What changes over time is the record's **event
+history**, an append-only list, mirroring this repository's own established pattern for
+"a log of things that happened to one entity over time" (`KillSwitch._log: list[KillSwitchActivation]`
+at `moltbook/transport.py:465`; `CaptchaVerifier._log: list[CaptchaAttemptRecord]` at
+`moltbook/transport.py:972`) — those are in-memory lists private to one session; this is the same
+append-only-list idiom, applied to a file so it survives across sessions.
+
+A single record's event history for this `action_id` can look like:
+`ATTEMPT_IN_PROGRESS` → `FROZEN` → `AVAILABLE` (via a recorded recovery disposition) →
+`ATTEMPT_IN_PROGRESS` (a fresh gate entry, same GO-2, same `authorized_action_id`) → `CONSUMED` (if
+this second attempt crosses the boundary), or → `FROZEN` again (if it does not, requiring its own
+independent recovery evidence before any third entry). **Gate evaluation always reads the *most
+recent* event in this history to determine current state** — recovery does not delete or overwrite
+the FROZEN event it resolves; it appends a `RECOVERED_TO_AVAILABLE` event after it, and a
+subsequent gate entry appends its own new `ATTEMPT_IN_PROGRESS` event after that. Every earlier
+event remains exactly as written, so a future auditor can reconstruct the complete sequence for
+this `action_id` without any state having been overwritten or inferred.
+
+Per-event fields, in addition to the static identity fields shared by the whole record (below):
+`event_type` (`ATTEMPT_IN_PROGRESS` / `FROZEN` / `RECOVERED_TO_AVAILABLE` / `CONSUMED` / a resolved
+outcome), `event_timestamp`, and whatever fields that event type requires — a `FROZEN` event
+carries `freeze_reason`; a `RECOVERED_TO_AVAILABLE` event carries the full recovery disposition
+(`recovery_evidence_reference`, `recovery_evidence_summary`, `recovered_by_operator`,
+`recovered_at`, and the explicit "`_request_fn(...)` was not invoked" statement); a `CONSUMED` or
+outcome event carries `transmission_attempt_at`, `outcome`, `publication_status`,
+`verification_status`, `reconciliation_reference`, `c5_reference`, `terminal` as applicable. No
+event is ever mutated once appended.
+
+### Attempt-record protocol
+
+**Location (comes into existence only on first use — nothing in governance adoption requires it to
+exist before a real governed execution session):** `moltbook/.execution_state/` — a git-ignored,
+untracked directory (see `.gitignore`), one record file per `action_id`. This directory sits
+outside every governed execution path; it is runtime/session evidence, not governed code or a
+tracked governance artifact. Its presence, absence, or content is **independent** of the tracked
+clean-tree determination (checklist §E row 1 and gate step 6) — a clean tracked tree and "no
+previous attempt exists" are two separate facts, and this design deliberately keeps them separate
+so that neither can be mistaken for the other.
+
+**Minimum schema.** One record per `authorized_action_id`, split into static identity fields (set
+once, unchanged across every event, since recovery never changes the GO-2/`action_id` this record
+is keyed to) and the append-only `events` list described above.
+
+*Static fields, set when the record is first created:* `action_id` (equals `authorized_action_id`
+throughout the record's life), `go2_reference`, `authorized_action_id`, `payload_hash`,
+`execution_candidate_commit`, `governance_config_version`, `authorization_expires_at`.
+
+*Per-event fields (one entry per list item):* `event_type` (`ATTEMPT_IN_PROGRESS` / `FROZEN` /
+`RECOVERED_TO_AVAILABLE` / `CONSUMED` / a resolved outcome), `event_timestamp`,
+`record_created_at` (only meaningful on an `ATTEMPT_IN_PROGRESS` event — populated at marker-write
+time, pre-boundary, by construction), `transmission_attempt_at` (**null when that specific
+`ATTEMPT_IN_PROGRESS` event is created**; populated on that same event only once the operator can
+establish `_request_fn(...)` was actually invoked for *that* attempt — a crash leaving this null
+while the record's latest event is still `ATTEMPT_IN_PROGRESS` means that attempt's boundary status
+is **unknown**, i.e. FROZEN, never "no attempt occurred"), `outcome` / `publication_status` /
+`verification_status` (mirroring `moltbook.transport`'s own `TransportOutcome` /
+`PublicationStatus` / `VerificationStatus` values — no new vocabulary, present on a `CONSUMED`/
+outcome event), `reconciliation_reference`, `c5_reference` (only if §C5 is invoked), `terminal`
+(boolean, present on an outcome event — describes only that *this attempt's* transport-level story
+is closed; does not mean the First-Post Rider is discharged, see below), and — on a `FROZEN` or
+`RECOVERED_TO_AVAILABLE` event only — the recovery fields from above (`freeze_reason`,
+`recovery_evidence_reference`, `recovery_evidence_summary`, `recovered_by_operator`,
+`recovered_at`). No operator/verifier identity field governs ordinary attempt tracking — this
+checklist's own `Verified by` rule remains the human-accountability surface for governance rows;
+operator identity appears in this record only on a `RECOVERED_TO_AVAILABLE` event, where
+accountability for that specific act is required.
+
+**Gate evaluation reads the record's most recent event** to determine current state (AVAILABLE /
+FROZEN / CONSUMED) per the operative rule above; it never needs to re-derive state from the whole
+history, though the whole history remains available for audit.
+
+**Atomic-write procedure**, reusing this repository's existing pattern verbatim
+(`moltbook/cadence.py:129-132`, `moltbook/citation.py:132-135`): write the complete record to a
+temporary file in the same directory (`<path>.tmp`), then atomically replace the destination
+(`os.replace(tmp, path)`). **This is process-crash-safe atomic local persistence — it is not
+power-loss-safe, not fsync-backed, not machine-loss-safe, not tamper-proof, and not a concurrency
+mechanism.** Neither existing store in this repository calls `fsync()`; a genuine OS crash or power
+loss between the write and the rename could still lose the record despite the rename appearing to
+succeed. It is designed for the current single-interactive-operator execution model (runbook §3),
+not for parallel writers. Do not represent this pattern as providing stronger guarantees than this.
+
+**Archival distinction — non-blocking, not part of the live-send critical path.** After the
+record's most recent event reaches a resolved terminal state, the full record — including its
+complete event history — may optionally be copied into a committed governance-evidence location
+and included in a later commit, for long-term auditability — analogous to how `m5/traces/*.txt`
+are committed after generation rather than at generation time. This step has no bearing on whether
+a transmission may proceed and must never be inserted between a pre-send `ATTEMPT_IN_PROGRESS`
+event and the actual transmission.
+
+**GO-2 consumption is not the same claim as First-Post Rider discharge or §C5 completion.** An
+event's `terminal: true` describes only that *that attempt's* transport-level story is closed.
+The following are all legitimate simultaneous states: GO-2 consumed, Rider still active,
+reconciliation pending; or GO-2 consumed, Rider still active, §C5 correction pending. A correction
+performed under §C5 is itself a fresh governed action with its own approval — it is never a reuse
+of the original, already-consumed GO-2.
+
+### Known open items — future fresh authorization only
+
+The following questions are recorded here, unresolved, because they will need answers before any
+**future** transmission attempt following a consumed GO-2 — they do not affect, gate, or grant any
+authority over the first transmission under the current, not-yet-signed GO-2 record:
+
+1. After a consumed GO-2 whose attempt ultimately resolves to `NOT_PUBLISHED`, confirmed failure,
+   or an ambiguity that reconciles to `NOT_PUBLISHED`, does a fresh GO-2 record require a new
+   exact-payload Dry Run if the payload is unchanged from the consumed attempt?
+2. If governed code has not changed, may the same, already-tested `execution_candidate_commit` be
+   reused as the candidate for that fresh GO-2, or must candidate fixation and the full-suite test
+   pass be repeated?
+
+Neither question is answered by this section. No inference should be drawn from the current GO-2
+draft's Dry Run status or execution-candidate fixation toward how either question resolves for a
+future, not-yet-existing authorization. Both must be resolved before any post-consumption fresh
+transmission authorization may proceed.
+
+### Operator disposition — acceptance of this section as standing governance
+
+§D.5 is a standing procedural rule governing every future GO-2's transmission authority, not a
+one-time fact to attest (the checklist header's `Verified by` rule) and not a one-time transmission
+grant (§D's `Authorized by (operator)`). Its acceptance is a third, distinct kind of act, following
+the same pattern established for `docs/m7_moltbook_transport_boundary_and_deployment_spec.md` §16
+Amendment 1 and `docs/m7_eligibility_freshness_ruling_2026-09-01.md` — a standalone-rule
+acceptance disposition, not a checklist-row verification and not a GO-2 authorization.
+
+```
+Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-09-18 22:38 EDT.
+
+Reviewed by (operator): Kevin Brown
+Reviewed at: 2026-09-18 22:38 EDT
+Disposition (select one):
+  [x] Accepted as written.
+  [ ] Accepted with modification — operator states the modification.
+  [ ] Rejected — operator states the reasoning.
+Statement: "I have reviewed the AVAILABLE/FROZEN/CONSUMED model, the
+            construct-verify-mark gate sequence, the FROZEN recovery
+            evidentiary standard, the attempt-record protocol and its
+            append-only event history, and the attempt-based GO-2
+            consumption rule at §D.5, and accept it as standing governance
+            for every future GO-2 transmission attempt. This acceptance
+            does not itself authorize any transmission, sign any GO-2
+            record, or make C4 Runbook Amendment 1 operative — those
+            remain separate acts."
+```
+
+This block must be completed **before** `docs/m7_c4_runbook_amendment_1_2026-09-18.md` may be
+validly signed — that amendment's own disposition presupposes §D.5 is already-accepted, settled
+governance at the moment it is signed, not still-pending-review text. §D.5 acceptance and C4
+Amendment 1 signature are sequential, not parallel, and neither substitutes for a later, separate
+GO-2 signature.
 
 ---
 
