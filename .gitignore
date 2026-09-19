@@ -5,6 +5,10 @@
 .claude/*
 !.claude/skills/
 
+# M7 GO-2 single-use gate: procedural attempt-record evidence (checklist §D.5) —
+# runtime/session evidence, not governed code or a tracked governance artifact.
+moltbook/.execution_state/
+
 # Python
 __pycache__/
 *.pyc
