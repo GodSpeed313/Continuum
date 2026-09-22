@@ -237,10 +237,11 @@ Status: DRAFT — unsigned
 Amended by (operator):
 Amended at:
 Statement: "I have reviewed original C4 (unchanged, signed 2026-08-24) and this
-            amendment's superseding §5.4 and §7 content in full, confirm the
-            amendment correctly integrates checklist §D.5's single-use gate
-            into the live-execution sequence, and accept this amendment as the
-            operative procedure for the first governed transmission. This
-            acceptance does not itself grant GO-2 or authorize any
-            transmission; those remain separately governed."
+            amendment's superseding §5.4, §6 (narrowly, via §3a), and §7
+            content in full, confirm the amendment correctly integrates
+            checklist §D.5's single-use gate into the live-execution
+            sequence, and accept this amendment as the operative procedure
+            for the first governed transmission. This acceptance does not
+            itself grant GO-2 or authorize any transmission; those remain
+            separately governed."
 ```
