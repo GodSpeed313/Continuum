@@ -21,6 +21,9 @@ a signed document is corrected by a new standalone document, never reopened").
 - supersede, for the purpose of live execution only, C4 §5.4 step 3's treatment of `consumed_at`
   and rider discharge, replacing a previously-disclaimed interpretation with a pointer to now-settled
   checklist authority;
+- supersede, for the purpose of live execution only, C4 §6's Dry Run carry-across statement, adding
+  `governance_config_version` as a required-match value alongside `payload_hash` and `action_type`
+  — see §3a below; `action_id` remains, unchanged, the one value that must not carry across;
 - supersede, for the purpose of live execution only, C4 §7's sequence, replacing it with the
   complete amended sequence at §4 below;
 - add to C4 §10's version binding, since the operative procedure now also depends on checklist
@@ -30,9 +33,11 @@ a signed document is corrected by a new standalone document, never reopened").
 - reopen, edit, or alter a single byte of the signed `docs/m7_c4_first_post_runbook_2026-08-21.md`.
   That document remains historically FINALIZED and signed exactly as it stands, and every citation
   to it as history (e.g., the checklist's own C4 row) remains fully accurate.
-- alter C4 §1, §2, §3, §4, §6, §8, or §9 in any respect. Those sections are unaffected and remain
+- alter C4 §1, §2, §3, §4, §8, or §9 in any respect. Those sections are unaffected and remain
   in force exactly as signed; a live executor still needs to read them (this amendment does not
-  reproduce their content).
+  reproduce their content). §6 is unaffected except for the single carry-across statement §3a below
+  narrowly supersedes — the rest of §6 (Dry Run coverage limits on captcha/verification/AMBIGUOUS
+  and on §4's action-ID control point) is unaffected and remains in force exactly as signed.
 - independently re-derive the attempt-based consumption rule, the AVAILABLE/FROZEN/CONSUMED model,
   the attempt-record protocol, or the FROZEN-recovery evidence requirements. Checklist §D.5 is the
   sole controlling authority for all of those; this amendment binds C4's operative behavior to that
@@ -61,11 +66,13 @@ a signed document is corrected by a new standalone document, never reopened").
 ## 2. Relationship to the original C4
 
 Where this amendment is silent, the original `docs/m7_c4_first_post_runbook_2026-08-21.md` governs
-in full. A live executor needs **both documents**: this amendment for the operative §5.4/§7
+in full. A live executor needs **both documents**: this amendment for the operative §5.4/§6/§7
 content, and the original for everything else — §1 (purpose/scope), §2 (the 300-second window
 rationale), §3 (the interactive-session/kill-switch execution model), §4 (the action-ID binding
-finding this amendment's §4 step 7–8 directly implements), §6 (Dry Run coverage limits), §8
-(forward dependency on §C5), and §9 (attestation limits).
+finding this amendment's §4 step 7–8 directly implements), §6 (Dry Run coverage limits — as
+superseded on carry-across values only by §3a below; its captcha/verification/AMBIGUOUS-branch and
+action-ID coverage limits are unaffected), §8 (forward dependency on §C5), and §9 (attestation
+limits).
 
 A citation to "C4" or "the runbook" for the purpose of identifying **what governs a live send today**
 means C4 as superseded by this amendment. A citation to C4 for **historical or provenance**
@@ -85,6 +92,37 @@ the contrary; do not treat this runbook's reading as a settled rule."
 full consumption rule at checklist §D.5. GO-2 consumption, First-Post Rider discharge, and §C5
 completion remain three distinct closure questions — checklist §D.5's own text states this
 explicitly, and this amendment does not restate it, only binds to it.
+
+## 3a. Amended §6 — Dry Run carry-across requirement
+
+Original C4 §6 read, in relevant part: "Only `payload_hash` and `action_type` carry across between
+the rehearsal envelope and the authorized one; `action_id` deliberately does not, and must not be
+made to."
+
+**This is now widened by explicit finding, not independently re-derived.** `validate_envelope()`
+(`moltbook/transport.py:113-136`) checks an envelope's `governance_config_version` against a
+caller-supplied `live_config_version` — both are plain strings with no canonical or global source
+anywhere in this repository (`DryRunTransport.__init__` and `MoltbookHTTPTransport.__init__` both
+take `live_config_version` as a bare constructor argument, the latter defaulting to `""`). A Dry
+Run's config-drift check therefore only proves self-consistency between whatever value the operator
+chose for the rehearsal envelope and whatever value the operator chose for the `DryRunTransport`
+instance — it carries no evidentiary weight about the real live transport unless that same value is
+deliberately held constant through to live construction.
+
+For live execution, C4 §6 is superseded to read: the exact-payload Dry Run and the authorized/live
+action must correspond across three values, not two — `payload_hash`, `action_type`, and
+`governance_config_version` — held identical across the Dry Run `ActionEnvelope`,
+`DryRunTransport.live_config_version`, GO-2's `authorized_config_version`, the eventual live
+`ActionEnvelope.governance_config_version`, and the real `MoltbookHTTPTransport.live_config_version`.
+`action_id` is unchanged by this widening — it remains the one value that deliberately does not
+carry across, and must not be made to (C4 §6, unchanged on this point).
+
+This section does not introduce a repository-wide `governance_config_version` convention or choose
+a value — none is fixed here, and none is fixed by original C4 §6 either. It states only that
+whatever value is eventually chosen must be held constant across the five points named above.
+Original C4 §6's remaining content — Dry Run's inability to rehearse a captcha challenge, a captcha
+failure, the §5 AMBIGUOUS branch, or §4's action-ID control point — is unaffected and remains in
+force exactly as signed.
 
 ## 4. Amended §7 — operative sequence for live execution
 
