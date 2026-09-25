@@ -408,8 +408,8 @@ transmission activity; and does not itself become effective by its own existence
 Status: DRAFT — unsigned, cold-reviewed. Placement (§3.3) incorporated per operator direction,
         2026-09-24; full acceptance of this amendment remains a separate, later, operator
         acceptance/sign-off act, not itself accomplished by the cold review already performed.
-Amended by (operator):
-Amended at:
+Amended by (operator): Kevin Brown
+Amended at: 21:44 EDT 2026-09-24
 Statement: "I have reviewed the correction to §D.5's external-contact description (§2),
             the placement incorporated at §3.3 per my own prior direction, the express
             qualification of step 11 (§3.5), the recovery-evidence capture direction
