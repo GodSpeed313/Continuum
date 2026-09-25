@@ -33,10 +33,10 @@ position on:
   whether the operator accepts §3a's underlying three-way-match requirement at all — a determination
   this document does not make and is not blocked on. If and when that determination is made, it is
   its own, separate correcting instrument.
-- Checklist §D.5 §252's stale description of which C4 sections DRAFT `docs/m7_c4_runbook_amendment_
+- Checklist §D.5's stale description at `checklist:252` of which C4 sections DRAFT `docs/m7_c4_runbook_amendment_
   1_2026-09-18.md` leaves "untouched." That amendment's substantive content is itself still settling
   (see D.5's own text, "§D.5 acceptance and C4 Amendment 1 signature are sequential, not parallel" —
-  `docs/m7_operator_go_checklist.md:563–564`); correcting §D.5's description of it now would risk
+  `docs/m7_operator_go_checklist.md:562–563`); correcting §D.5's description of it now would risk
   needing a second correction once C4 Amendment 1's content is finalized. Left parked for a
   subsequent, separate correction once C4 Amendment 1 settles.
 - Checklist §D's requires-table (a different, currently-unsigned section gating GO-2's own
@@ -113,7 +113,7 @@ this sentence only:**
 > whether `self._request_fn(...)` inside `send()`'s **write** path was reached, exactly as before.
 > Envelope freshness validation, kill-switch check, and path/body construction remain accurately
 > described as local computation with no external effect; the eligibility check no longer is, and
-> this document's own text is corrected accordingly.
+> §D.5's description is corrected accordingly by this supersession.
 
 **Also qualified — the FROZEN-recovery "qualifying evidence" list** (`docs/m7_operator_go_
 checklist.md:377–385`), which names "an exception raised by `validate_envelope()`,
@@ -309,8 +309,9 @@ now reflects the directed placement as its operative content.
 **This section states only what current code supports, and does not claim a diagnostic precision
 that code does not have.**
 
-`check_eligibility()` (`moltbook/transport.py:1418–1427`) has exactly two failure modes, verified
-directly against `3b40fbd`, not assumed:
+For purposes of this amendment, `check_eligibility()`'s (`moltbook/transport.py:1418–1427`)
+relevant outcomes at this step are grouped into two categories, verified directly against
+`3b40fbd`, not assumed:
 
 1. **The `GET` completes at the transport level, its body parses successfully as JSON, and that
    JSON value has the object/mapping shape `check_eligibility()` requires** — any HTTP status,
@@ -368,8 +369,8 @@ consequence and no more. It does not attempt to distinguish, at this step, wheth
 CLAIM` result reflects a genuinely unclaimed agent, an invalid or dead credential, a malformed or
 unexpected response body, or any other condition the current response-classification code cannot
 tell apart — that remains exactly the scope of the already-parked Finding A. **Finding A is not
-resolved, narrowed, or otherwise touched by this document.** Nor does this document classify a raw
-transport-level exception (failure mode 2 above) under Finding A's own terms — it is a distinct,
+resolved, narrowed, or otherwise touched by this document.** Nor does this document classify an
+uncaught exception (failure mode 2 above) under Finding A's own terms — it is a distinct,
 newly-surfaced-at-this-callsite fact, left as a plain observation, not a governance ruling of its
 own.
 
