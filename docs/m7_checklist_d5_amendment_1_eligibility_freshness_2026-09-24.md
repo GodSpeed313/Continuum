@@ -1,6 +1,9 @@
 # Checklist §D.5 — Amendment 1: Eligibility-Freshness Integration
 
-**Status: DRAFT — cold-reviewed; pending separate operator acceptance and sign-off. Not yet in effect.**
+**Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-09-24 21:44 EDT** (full
+acceptance statement at the foot of this document). This acceptance does not itself authorize any
+transmission, sign any GO-2, or make DRAFT C4 Amendment 1 operative or conforming to this change —
+those remain separate acts, including C4 Amendment 1's own required conformity revision.
 **Subject document:** `docs/m7_operator_go_checklist.md` §D.5 (Final Pre-Transmission Single-Use
 Gate), SIGNED / LOCKED by Kevin Brown, 2026-09-18 22:38 EDT (`checklist:541–557`, the sole signed
 disposition block covering both the gate text and its standing-rule acceptance together).
@@ -405,11 +408,9 @@ transmission activity; and does not itself become effective by its own existence
 ---
 
 ```
-Status: DRAFT — unsigned, cold-reviewed. Placement (§3.3) incorporated per operator direction,
-        2026-09-24; full acceptance of this amendment remains a separate, later, operator
-        acceptance/sign-off act, not itself accomplished by the cold review already performed.
-Amended by (operator):
-Amended at:
+Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-09-24 21:44 EDT.
+Amended by (operator): Kevin Brown
+Amended at: 21:44 EDT 2026-09-24
 Statement: "I have reviewed the correction to §D.5's external-contact description (§2),
             the placement incorporated at §3.3 per my own prior direction, the express
             qualification of step 11 (§3.5), the recovery-evidence capture direction
