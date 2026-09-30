@@ -357,8 +357,21 @@ validation (C3), the first-post runbook (C4), and the Published-Outcome Correcti
 Procedure (C5). Each of C1, C3, C4 and C5 is a standalone dated artifact whose header is dated to
 its signature rather than to its commit.
 
-**§D — GO-2 — is the next gate, and it is not started.** GO-2 is single-use: one action, one payload
-hash, one commit, one expiry. Nothing above it authorizes a write.
+**§D — GO-2 — is the next gate, and it is not signed.** GO-2 is single-use: one action, one payload
+hash, one commit, one expiry. A staging draft ([`docs/m7_go2_decision_2026-09-18.md`](docs/m7_go2_decision_2026-09-18.md))
+exists, but it states of itself that it is not signed and that GO-2 is not granted; among other things it
+is blocked on there being no exact first-post payload yet.
+
+Since §C closed, the single-use gate itself has been specified and hardened, each step as its own signed,
+locked artifact: [§16 Amendment 1](docs/m7_moltbook_transport_boundary_and_deployment_spec.md) (a governed
+write needs a live, same-instance eligibility read — signed 2026-09-13),
+[Checklist §D.5](docs/m7_operator_go_checklist.md) (the AVAILABLE / FROZEN / CONSUMED single-use
+transmission gate — signed 2026-09-18), and
+[D.5 Amendment 1](docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md) (places that live
+read immediately before `send()` — signed 2026-09-24). The first-post runbook's amendment that integrates
+the gate, [C4 Runbook Amendment 1](docs/m7_c4_runbook_amendment_1_2026-09-18.md), is drafted and conformed
+to all of the above but **remains unsigned**, with two questions recorded as open before signature.
+Nothing above it authorizes a write.
 
 ---
 
@@ -423,7 +436,9 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M7 — Operator GO checklist, §A Preliminary Readiness Review | ✅ Complete — 13/13 rows signed (longitudinal grounding, engineering completeness, deployment packet read, first-post rehearsal). §A is the gate for GO-1 |
 | M7 — GO-1 deployment preparation authorization | ✅ Granted 2026-08-10 — its own dated artifact, not a checklist row; authorizes preparation only, never transmission |
 | M7 — Operator GO checklist, §C Preparation Work (gated by GO-1, gates GO-2) | ✅ Complete — 5/5 rows signed: C1 CAPTCHA wiring plan · C2 live `submit_captcha_fn` wiring · C3 endpoint connectivity validation · C4 first-post runbook · C5 Published-Outcome Correction and Withdrawal Procedure (delete and edit are deferred out of Phase One by boundary spec §12, so corrective follow-up is the only operative disposition) |
-| M7 — GO-2 single-use transmission authorization + first live post | ⬜ Next — §A, GO-1 and §C are all cleared; GO-2 is bound to one action, one payload hash, one commit, with an explicit expiry |
+| M7 — Single-use transmission gate (§16 Amendment 1 · Checklist §D.5 · D.5 Amendment 1) | ✅ Signed and locked — specification and procedure only: live same-instance eligibility read, AVAILABLE / FROZEN / CONSUMED model, attempt-record protocol. Adds no new enforcement code; `send()` enforces as it already does |
+| M7 — C4 Runbook Amendment 1 (integrates the gate into the live-execution sequence) | 🔄 Drafted and conformed to D.5 Amendment 1 — **unsigned**; two questions open before signature |
+| M7 — GO-2 single-use transmission authorization + first live post | ⬜ Not granted — §A, GO-1 and §C are cleared and a staging draft exists, but GO-2 is unsigned and blocked on an exact first-post payload; it is bound to one action, one payload hash, one commit, with an explicit expiry |
 
 **647 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
 
@@ -447,7 +462,15 @@ continuum/
 │   ├── m7_identity_integrity_ruling.md                        # M7 ruling — within-session identity consistency
 │   ├── m7_identity_integrity_ruling_addendum_1.md             # Addendum 1 — external-review fixes (A1–A6)
 │   ├── m7_cadence_integrity_ruling.md                         # M7 ruling — posting-cadence integrity (longitudinal)
-│   └── m7_citation_cluster_integrity_ruling.md                # M7 ruling — citation-cluster integrity (longitudinal)
+│   ├── m7_citation_cluster_integrity_ruling.md                # M7 ruling — citation-cluster integrity (longitudinal)
+│   ├── m7_moltbook_transport_boundary_and_deployment_spec.md  # M7 transport boundary spec (incl. §16 Amendment 1 — eligibility freshness)
+│   ├── m7_operator_go_checklist.md                            # M7 operator GO checklist — §A–§E, incl. the §D.5 single-use gate
+│   ├── m7_go1_decision_2026-08-10.md                          # GO-1 decision — preparation authorization only
+│   ├── m7_eligibility_freshness_ruling_2026-09-01.md          # Eligibility-gate freshness ruling
+│   ├── m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md  # D.5 Amendment 1 — live eligibility read before send()
+│   ├── m7_c4_first_post_runbook_2026-08-21.md                 # C4 first-post runbook
+│   ├── m7_c4_runbook_amendment_1_2026-09-18.md                # C4 Amendment 1 — gate integration (DRAFT, unsigned)
+│   └── m7_go2_decision_2026-09-18.md                          # GO-2 staging draft — NOT signed, NOT granted
 ├── es/
 │   ├── es_governance.pi              # Pi Script policy for Elasticsearch governance
 │   ├── es_adapter.py                 # State adapter — queries ES, writes state.json
@@ -467,6 +490,8 @@ continuum/
 │   ├── detector.py                   # Mechanical detectors — credentials, link provenance, identity drift
 │   ├── cadence.py                    # CadenceIntegrity observation store + governance gate
 │   ├── citation.py                   # CitationClusterIntegrity edge store + governance gate
+│   ├── transport.py                  # Governed execution boundary — envelope validation, kill switch, eligibility gate, dry-run and HTTP transports
+│   ├── dryrun.py                     # Reserved dry-run identifier namespace (transport spec §11)
 │   └── link_allowlist.json           # Human-owned link allowlist — editable only via commit/PR
 ├── pi_script/
 │   ├── pi_script.lark                # Lark grammar
@@ -546,4 +571,4 @@ Scope discipline is a feature. These are deferred on purpose, not forgotten:
 
 ---
 
-*Continuum — Pi Script v0.2 + Rift v0.2 + the M7 Moltbook constraint set — July 2026*
+*Continuum — Pi Script v0.2 + Rift v0.2 + the M7 Moltbook constraint set — September 2026*
