@@ -4,7 +4,9 @@
 **Subject document:** `docs/m7_c4_first_post_runbook_2026-08-21.md` (FINALIZED, signed
 Kevin Brown, 2026-08-24 10:58 EDT, citing `docs/m7_operator_go_checklist.md` §C4).
 **Authority:** `docs/m7_operator_go_checklist.md` §D.5 (Final Pre-Transmission Single-Use Gate),
-added 2026-09-18.
+added 2026-09-18, as amended by
+`docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md`
+(D.5 Amendment 1 — SIGNED / LOCKED, Kevin Brown, 2026-09-24 21:44 EDT).
 
 ---
 
@@ -27,7 +29,7 @@ a signed document is corrected by a new standalone document, never reopened").
 - supersede, for the purpose of live execution only, C4 §7's sequence, replacing it with the
   complete amended sequence at §4 below;
 - add to C4 §10's version binding, since the operative procedure now also depends on checklist
-  §D.5.
+  §D.5 and on D.5 Amendment 1.
 
 **It does not:**
 - reopen, edit, or alter a single byte of the signed `docs/m7_c4_first_post_runbook_2026-08-21.md`.
@@ -39,10 +41,10 @@ a signed document is corrected by a new standalone document, never reopened").
   narrowly supersedes — the rest of §6 (Dry Run coverage limits on captcha/verification/AMBIGUOUS
   and on §4's action-ID control point) is unaffected and remains in force exactly as signed.
 - independently re-derive the attempt-based consumption rule, the AVAILABLE/FROZEN/CONSUMED model,
-  the attempt-record protocol, or the FROZEN-recovery evidence requirements. Checklist §D.5 is the
-  sole controlling authority for all of those; this amendment binds C4's operative behavior to that
-  authority and restates only what is necessary to make the live sequence followable without
-  cross-referencing §D.5 mid-execution.
+  the attempt-record protocol, or the FROZEN-recovery evidence requirements. Checklist §D.5, as
+  amended by D.5 Amendment 1, is the sole controlling authority for all of those; this amendment
+  binds C4's operative behavior to that authority and restates only what is necessary to make the
+  live sequence followable without cross-referencing §D.5 or D.5 Amendment 1 mid-execution.
 - grant GO-2. GO-2 remains a separate, later signature event under checklist §D, gated on its own
   outstanding requirements (exact payload, Dry Run, etc. — none of which this amendment touches).
 - authorize any transmission by its own existence. Nothing here executes anything.
@@ -167,9 +169,25 @@ commit` matches the current clean tree; rider (envelope doc §2) fully populated
    `transmission_attempt_at` left null. **GO-2 transitions from AVAILABLE to FROZEN at this write.**
 10. **Re-read the just-written record** and verify its identity/binding fields match exactly what
     was written and what the envelope from step 7 carries.
+
+**10a.** **Live eligibility read.** On the exact same transport instance that will perform the write
+    at step 11, call `check_eligibility()` (`moltbook/transport.py:1418–1427`). This is the live
+    platform read Transport §16 Amendment 1 §1.1 requires
+    (`docs/m7_moltbook_transport_boundary_and_deployment_spec.md:754–756`), at the placement D.5
+    Amendment 1 §3.3 item 3 fixes (`docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md:188–193`).
+    No operation of any kind — local or external, governed or otherwise — occurs between this read
+    and step 11's call to `send()`. This read is not the transmission-attempt boundary (see step
+    11). It adds no enforcement call: enforcement remains with the existing
+    `eligibility.check_write()` inside `send()`.
+
 11. **Call `send()`.** The operator remains present for the duration, kill switch reachable.
     Nothing between step 9's write and this call may substitute the envelope, payload, action,
-    configuration, credentials, or execution candidate the gate was run against.
+    configuration, credentials, or execution candidate the gate was run against — all six
+    protections stand exactly as before. The step 10a eligibility read is a permitted operation
+    ahead of this call: it substitutes none of them, exists solely to satisfy Transport §16
+    Amendment 1's eligibility-freshness requirement, and is followed immediately by this call, with
+    no additional intervening operation of any kind permitted between step 10a and this call (D.5
+    Amendment 1 §3.3 item 3 and §3.5, lines 188–193 and 251–262).
 
     `send()` performs its own existing internal sequence — `validate_envelope()`,
     `kill_switch.check_write()`, `eligibility.check_write()` — before any network call
@@ -180,9 +198,35 @@ commit` matches the current clean tree; rider (envelope doc §2) fully populated
     evidence" describes, though recovery still requires an explicit operator disposition, never an
     automatic inference.
 
-    The instant execution reaches `self._request_fn(...)` (`moltbook/transport.py:1491-1492`), the
-    transmission-attempt boundary is crossed and **GO-2 transitions from FROZEN to CONSUMED,
-    permanently, regardless of what this call subsequently returns, raises, or times out as.**
+    `eligibility.check_write()` here enforces the observation taken at step 10a, not any earlier or
+    stored value (D.5 Amendment 1 §3.3 item 4, lines 194–199); no enforcement call is added outside
+    `send()`.
+
+    A qualifying failure at step 10a, or at `eligibility.check_write()` inside `send()` enforcing
+    it, occurs after step 9's write and before the boundary: the boundary is not crossed, and GO-2
+    becomes/remains FROZEN (not CONSUMED), subject to the same evidence-gated recovery protocol
+    (D.5 Amendment 1 §3.3, lines 206–211). The uncaught exception paths D.5 Amendment 1 §4
+    identifies at this call site (lines 333–365) apply; this amendment neither restates nor
+    extends them.
+
+    **Evidence capture.** Where either step 10a's `check_eligibility()` call, or
+    `eligibility.check_write()` inside `send()` enforcing its result, fails or raises, the operator
+    (or the session's own tooling) contemporaneously captures and preserves the resulting
+    exception, traceback, or other applicable control-flow evidence — the same category of evidence
+    `checklist:377–381` already recognizes, applied at this call site (D.5 Amendment 1 §3.6, lines
+    276–282). This is a procedural evidence-capture instruction only: it creates no recovery
+    authority, does not infer recovery from captured evidence, and does not transition GO-2 from
+    FROZEN to AVAILABLE, which remains an explicit, evidence-gated operator disposition
+    (`docs/m7_operator_go_checklist.md:393–411`; D.5 Amendment 1 §3.6).
+
+    Consumption is defined solely by whether `self._request_fn(...)` inside `send()`'s **write**
+    path was reached (D.5 Amendment 1 §2, lines 115–116). The instant execution reaches that call
+    (`moltbook/transport.py:1491-1492`), the transmission-attempt boundary is crossed and **GO-2
+    transitions from FROZEN to CONSUMED, permanently, regardless of what this call subsequently
+    returns, raises, or times out as.** The step 10a read is not that boundary: per D.5 Amendment 1
+    §2 it "is not, and does not become, the transmission-attempt boundary: it authorizes nothing,
+    transmits no governed content, and its own occurrence — successful, failed, or
+    exception-raising — does not by itself consume GO-2" (lines 113–116).
     Record the actual crossing timestamp on GO-2's `consumed_at` once known (checklist §D,
     `consumed_at` field) — immediately if control returns promptly, or during reconciliation if the
     session ends before this can be done. A blank `consumed_at` after a session ending here does
@@ -225,10 +269,30 @@ then withdrawn during this document's own drafting process.
 
 Bound to: `docs/m7_c4_first_post_runbook_2026-08-21.md` as signed 2026-08-24 10:58 EDT (unchanged,
 verified byte-identical to that signature as of this amendment's drafting); `docs/m7_operator_go_
-checklist.md` §D.5 as it stands when this amendment is signed; `moltbook/transport.py` at the
+checklist.md` §D.5 as it stands when this amendment is signed; `docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md`
+(D.5 Amendment 1), SIGNED / LOCKED 2026-09-24 21:44 EDT; `moltbook/transport.py` at the
 commit checklist §D.5 itself is bound to. Does not inherit forward across a material change to any
 of them — a material change to checklist §D.5's model, or to the cited transport code, requires a
 fresh review of this amendment against the change, exactly as C4's own §10 states for itself.
+
+## Open before signature (non-operative note)
+
+This note is **not part of the operative sequence** (§4), does not modify §3a, §5, or the
+signature Statement below, and does not resolve either question it records. It states two open
+questions only; it proposes no answer and creates no requirement, recommendation, default, or
+implied disposition. Per operator disposition, 2026-09-30, both are to be resolved before this
+amendment is signed.
+
+1. **Version-binding commit (§5).** §5 binds `moltbook/transport.py` "at the commit checklist
+   §D.5 itself is bound to." Checklist §D.5 (`docs/m7_operator_go_checklist.md:230–564`)
+   identifies no commit, so the phrase has no identified referent. This predates D.5 Amendment 1
+   and was exposed, not created, by the conformity review against it. **Open question:** to which
+   commit, if any, this amendment's transport binding refers.
+2. **§3a / `governance_config_version`.** §3a widens original C4 §6's carry-across requirement
+   to include `governance_config_version`, and the signature Statement below attests acceptance
+   of "§6 (narrowly, via §3a)". D.5 Amendment 1 takes no position on §3a
+   (`docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md:34–38`). Signing this amendment as
+   structured would accept §3a. **Open question:** whether §3a is accepted as governance.
 
 ---
 
@@ -239,9 +303,9 @@ Amended at:
 Statement: "I have reviewed original C4 (unchanged, signed 2026-08-24) and this
             amendment's superseding §5.4, §6 (narrowly, via §3a), and §7
             content in full, confirm the amendment correctly integrates
-            checklist §D.5's single-use gate into the live-execution
-            sequence, and accept this amendment as the operative procedure
-            for the first governed transmission. This acceptance does not
-            itself grant GO-2 or authorize any transmission; those remain
-            separately governed."
+            checklist §D.5's single-use gate, as amended by D.5 Amendment
+            1, into the live-execution sequence, and accept this amendment
+            as the operative procedure for the first governed transmission.
+            This acceptance does not itself grant GO-2 or authorize any
+            transmission; those remain separately governed."
 ```
