@@ -119,6 +119,13 @@ action must correspond across three values, not two — `payload_hash`, `action_
 `action_id` is unchanged by this widening — it remains the one value that deliberately does not
 carry across, and must not be made to (C4 §6, unchanged on this point).
 
+GO-2's `authorized_config_version` is the procedural authorization reference for the qualifying
+configuration version — a value the operator records in GO-2, not a canonical configuration source
+in code. The qualifying value must be non-empty and identical across the five points above. A
+mismatch between any Dry Run value and the signed GO-2 `authorized_config_version` disqualifies
+the previous Dry Run: it may not be relied on as this GO-2's `dry_run_rehearsal_reference`. This
+does not decide either question checklist §D.5's "Known open items" parks.
+
 This section does not introduce a repository-wide `governance_config_version` convention or choose
 a value — none is fixed here, and none is fixed by original C4 §6 either. It states only that
 whatever value is eventually chosen must be held constant across the five points named above.
@@ -136,6 +143,16 @@ applies.
 commit` matches the current clean tree; rider (envelope doc §2) fully populated, including
 `dry_run_rehearsal_reference` from a completed rehearsal under a `dryrun-` id (C4 §6).
 
+**Added precondition (this amendment) — actual transport configuration.** Before step 11's call
+to `send()`, the `live_config_version` of the actual constructed `MoltbookHTTPTransport` instance
+that will perform that call (`moltbook/transport.py:1388`) must be non-empty and equal to GO-2's
+signed `authorized_config_version` (§3a). **Live-execution hold:** when that instance is
+constructed, and where in this sequence its `live_config_version` is verified, are not decided by
+this amendment. Step 8a verifies the *intended* configuration only, not a constructed instance.
+Live execution is not authorized until the operator resolves both; until then this precondition
+cannot be satisfied by following this sequence alone, and nothing in this amendment authorizes a
+live transmission.
+
 1. **Open the interactive session** that will hold the `KillSwitch` instance and call `send()` —
    per C4 §3, this is not a background process.
 2. **Clean-tree recheck** — confirm the working tree still matches `execution_candidate_commit`
@@ -146,9 +163,11 @@ commit` matches the current clean tree; rider (envelope doc §2) fully populated
    instance right now, from this session, without any additional setup (checklist §E row 2, second
    clause).
 5. **Rider re-review** — confirm the intended `authorized_action_id` and `authorized_payload_hash`
-   for the envelope about to be constructed match GO-2's recorded values (C4 §4's finding; this is
+   for the envelope about to be constructed match GO-2's recorded values, and that the
+   `governance_config_version` intended for that envelope and for transport construction is
+   non-empty and equals GO-2's signed `authorized_config_version` (§3a) (C4 §4's finding; this is
    a review of *intent*, not yet a check against a constructed object — that check happens at step
-   8 below, against the real object).
+   8 below, against the real object; the configuration version is checked at step 8a).
 6. **Enter checklist §D.5 through its attempt-record inspection (§D.5 gate steps 1–5).** Confirm
    GO-2 is signed and unexpired, confirm code/config/payload/action/credentials are unchanged,
    inspect the attempt-record location for this `action_id`, and confirm no known unresolved
@@ -164,6 +183,17 @@ commit` matches the current clean tree; rider (envelope doc §2) fully populated
    constructed at step 7, not against step 5's statement of intent. **If they do not match exactly,
    STOP. No marker has been written. GO-2 remains AVAILABLE.** Correct the construction and
    re-enter this step; do not proceed to step 9 on a mismatch.
+
+**8a.** **Configuration-version verification (before the GO-2 freeze).** Compare three values: (i)
+    signed GO-2's `authorized_config_version`, which must be non-empty; (ii) the
+    `governance_config_version` of the actual envelope constructed at step 7; and (iii) the
+    configuration version intended for transport construction. **If (i) is empty, or the three are
+    not identical, STOP. No marker has been written. GO-2 remains AVAILABLE.** Correct the
+    construction or the configuration intent (if (i) is empty, resolve that outside this
+    sequence) and re-enter step 8; do not proceed to step 9. This step verifies intended
+    configuration only; it does not verify an already-constructed `MoltbookHTTPTransport`
+    instance (see the added precondition above).
+
 9. **Atomically write the attempt record as `ATTEMPT_IN_PROGRESS`**, using the envelope's actual
    verified fields from step 8 (checklist §D.5's attempt-record protocol), with
    `transmission_attempt_at` left null. **GO-2 transitions from AVAILABLE to FROZEN at this write.**
@@ -270,42 +300,33 @@ then withdrawn during this document's own drafting process.
 Bound to: `docs/m7_c4_first_post_runbook_2026-08-21.md` as signed 2026-08-24 10:58 EDT (unchanged,
 verified byte-identical to that signature as of this amendment's drafting); `docs/m7_operator_go_
 checklist.md` §D.5 as it stands when this amendment is signed; `docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md`
-(D.5 Amendment 1), SIGNED / LOCKED 2026-09-24 21:44 EDT; `moltbook/transport.py` at the
-commit checklist §D.5 itself is bound to. Does not inherit forward across a material change to any
+(D.5 Amendment 1), SIGNED / LOCKED 2026-09-24 21:44 EDT; `moltbook/transport.py` at commit
+`52a8c9cde9d138281fae54eb0756f8748ed385c8`, consistent with original signed C4 §10.
+Does not inherit forward across a material change to any
 of them — a material change to checklist §D.5's model, or to the cited transport code, requires a
 fresh review of this amendment against the change, exactly as C4's own §10 states for itself.
 
-## Open before signature (non-operative note)
+## Operator determinations (non-operative note)
 
-This note is **not part of the operative sequence** (§4), does not modify §3a, §5, or the
-signature Statement below, and does not resolve either question it records. It states two open
-questions only; it proposes no answer and creates no requirement, recommendation, default, or
-implied disposition. Per operator disposition, 2026-09-30, both are to be resolved before this
-amendment is signed.
-
-1. **Version-binding commit (§5).** §5 binds `moltbook/transport.py` "at the commit checklist
-   §D.5 itself is bound to." Checklist §D.5 (`docs/m7_operator_go_checklist.md:230–564`)
-   identifies no commit, so the phrase has no identified referent. This predates D.5 Amendment 1
-   and was exposed, not created, by the conformity review against it. **Open question:** to which
-   commit, if any, this amendment's transport binding refers.
-2. **§3a / `governance_config_version`.** §3a widens original C4 §6's carry-across requirement
-   to include `governance_config_version`, and the signature Statement below attests acceptance
-   of "§6 (narrowly, via §3a)". D.5 Amendment 1 takes no position on §3a
-   (`docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md:34–38`). Signing this amendment as
-   structured would accept §3a. **Open question:** whether §3a is accepted as governance.
+This note is **not part of the operative sequence** (§4) and creates no requirement. The two
+questions previously recorded here — the §5 transport-binding commit and the acceptance of §3a —
+were resolved by operator determination on 2026-10-11, as follows. §5 binds `moltbook/transport.py`
+to commit `52a8c9cde9d138281fae54eb0756f8748ed385c8`, consistent with original signed C4 §10. §3a is
+accepted with the procedural clarification stated in §3a above.
 
 ---
 
 ```
 Status: DRAFT — unsigned
-Amended by (operator):
-Amended at:
+Amended by (operator): Kevin Brown
+Amended at: 2026-10-11 22:56 EDT
 Statement: "I have reviewed original C4 (unchanged, signed 2026-08-24) and this
             amendment's superseding §5.4, §6 (narrowly, via §3a), and §7
             content in full, confirm the amendment correctly integrates
             checklist §D.5's single-use gate, as amended by D.5 Amendment
             1, into the live-execution sequence, and accept this amendment
-            as the operative procedure for the first governed transmission.
+            as the operative procedure for the first governed transmission,
+            subject to its stated live-execution hold.
             This acceptance does not itself grant GO-2 or authorize any
             transmission; those remain separately governed."
 ```
