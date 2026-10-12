@@ -318,8 +318,8 @@ accepted with the procedural clarification stated in §3a above.
 
 ```
 Status: DRAFT — unsigned
-Amended by (operator): Kevin Brown
-Amended at: 2026-10-11 22:56 EDT
+Amended by (operator):
+Amended at:
 Statement: "I have reviewed original C4 (unchanged, signed 2026-08-24) and this
             amendment's superseding §5.4, §6 (narrowly, via §3a), and §7
             content in full, confirm the amendment correctly integrates
