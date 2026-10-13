@@ -1,6 +1,6 @@
 # M7 — C4 Runbook Amendment 1: Single-Use Gate Integration
 
-**Status: DRAFT — pending operator review and sign-off. Not yet in effect.**
+**Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-10-13 13:32 EDT**
 **Subject document:** `docs/m7_c4_first_post_runbook_2026-08-21.md` (FINALIZED, signed
 Kevin Brown, 2026-08-24 10:58 EDT, citing `docs/m7_operator_go_checklist.md` §C4).
 **Authority:** `docs/m7_operator_go_checklist.md` §D.5 (Final Pre-Transmission Single-Use Gate),
@@ -317,7 +317,7 @@ accepted with the procedural clarification stated in §3a above.
 ---
 
 ```
-Status: DRAFT — unsigned
+Status: SIGNED / LOCKED — accepted as written by Kevin Brown, 2026-10-13 13:32 EDT.
 Amended by (operator): Kevin Brown
 Amended at: 2026-10-13 13:32 EDT
 Statement: "I have reviewed original C4 (unchanged, signed 2026-08-24) and this
