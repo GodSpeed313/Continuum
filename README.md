@@ -369,8 +369,10 @@ write needs a live, same-instance eligibility read — signed 2026-09-13),
 transmission gate — signed 2026-09-18), and
 [D.5 Amendment 1](docs/m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md) (places that live
 read immediately before `send()` — signed 2026-09-24). The first-post runbook's amendment that integrates
-the gate, [C4 Runbook Amendment 1](docs/m7_c4_runbook_amendment_1_2026-09-18.md), is drafted and conformed
-to all of the above but **remains unsigned**, with two questions recorded as open before signature.
+the gate, [C4 Runbook Amendment 1](docs/m7_c4_runbook_amendment_1_2026-09-18.md), is conformed to all of the
+above and **signed and locked (2026-10-13 13:32 EDT)**. It carries its own live-execution hold, so it does not
+make a first post executable by itself: when the live transport instance is constructed, and where its
+configuration version is verified, are still unresolved.
 Nothing above it authorizes a write.
 
 ---
@@ -437,7 +439,7 @@ Tools like Guardrails AI filter or rewrite model outputs at inference time. Pi S
 | M7 — GO-1 deployment preparation authorization | ✅ Granted 2026-08-10 — its own dated artifact, not a checklist row; authorizes preparation only, never transmission |
 | M7 — Operator GO checklist, §C Preparation Work (gated by GO-1, gates GO-2) | ✅ Complete — 5/5 rows signed: C1 CAPTCHA wiring plan · C2 live `submit_captcha_fn` wiring · C3 endpoint connectivity validation · C4 first-post runbook · C5 Published-Outcome Correction and Withdrawal Procedure (delete and edit are deferred out of Phase One by boundary spec §12, so corrective follow-up is the only operative disposition) |
 | M7 — Single-use transmission gate (§16 Amendment 1 · Checklist §D.5 · D.5 Amendment 1) | ✅ Signed and locked — specification and procedure only: live same-instance eligibility read, AVAILABLE / FROZEN / CONSUMED model, attempt-record protocol. Adds no new enforcement code; `send()` enforces as it already does |
-| M7 — C4 Runbook Amendment 1 (integrates the gate into the live-execution sequence) | 🔄 Drafted and conformed to D.5 Amendment 1 — **unsigned**; two questions open before signature |
+| M7 — C4 Runbook Amendment 1 (integrates the gate into the live-execution sequence) | ✅ Signed and locked 2026-10-13 13:32 EDT — carries a live-execution hold (transport construction timing and where the actual transport's configuration version is verified are unresolved); its acceptance grants no GO-2 and authorizes no transmission |
 | M7 — GO-2 single-use transmission authorization + first live post | ⬜ Not granted — §A, GO-1 and §C are cleared and a staging draft exists, but GO-2 is unsigned and blocked on an exact first-post payload; it is bound to one action, one payload hash, one commit, with an explicit expiry |
 
 **647 tests passing + 7 xfailed** (deliberate known-gap pins) across parser, validator, trace builder, resolver, Rift pipeline (v0.1 + v0.2), MCP server, dashboard, the v0.2 rulings, the M7 Moltbook constraints (key isolation, pre-send gate, link provenance, identity consistency, posting-cadence integrity, citation-cluster integrity), the M7 Moltbook transport boundary (envelope validation, retry taxonomy, reconciliation, kill switch, dry-run isolation, claim-status eligibility gate, captcha issuance + verification, rate-limit header capture), and the GO checklist verifier.
@@ -469,7 +471,7 @@ continuum/
 │   ├── m7_eligibility_freshness_ruling_2026-09-01.md          # Eligibility-gate freshness ruling
 │   ├── m7_checklist_d5_amendment_1_eligibility_freshness_2026-09-24.md  # D.5 Amendment 1 — live eligibility read before send()
 │   ├── m7_c4_first_post_runbook_2026-08-21.md                 # C4 first-post runbook
-│   ├── m7_c4_runbook_amendment_1_2026-09-18.md                # C4 Amendment 1 — gate integration (DRAFT, unsigned)
+│   ├── m7_c4_runbook_amendment_1_2026-09-18.md                # C4 Amendment 1 — gate integration (SIGNED / LOCKED 2026-10-13)
 │   └── m7_go2_decision_2026-09-18.md                          # GO-2 staging draft — NOT signed, NOT granted
 ├── es/
 │   ├── es_governance.pi              # Pi Script policy for Elasticsearch governance
